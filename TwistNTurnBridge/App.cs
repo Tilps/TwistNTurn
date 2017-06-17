@@ -14,6 +14,7 @@ namespace TwistNTurnBridge
         private static Text timer;
         private static DateTime start = DateTime.MinValue;
         private static HTMLDivElement displayHost;
+        private static HTMLSelectElement typePicker;
         private static HTMLButtonElement generateButton;
         public static void Main()
         {
@@ -30,6 +31,13 @@ namespace TwistNTurnBridge
             displayHost.Style.Width = "100vw";
             displayHost.Style.Display = Display.TableRow;
             display = new LoopDisplay(displayHost);
+            typePicker = Document.CreateElement<HTMLSelectElement>("select");
+            typePicker.Add(Document.CreateElement<HTMLOptionElement>("option"));
+            typePicker.Add(Document.CreateElement<HTMLOptionElement>("option"));
+            typePicker.Options[0].Text = "Square";
+            typePicker.Options[1].Text = "Hexagon3";
+            typePicker.SelectedIndex = 0;
+            Document.Body.AppendChild(typePicker);
             Document.Body.AppendChild(Document.CreateTextNode("Size:"));
             sizeInput = Document.CreateElement<HTMLInputElement>("input");
             sizeInput.Placeholder = "10x10";
@@ -91,7 +99,7 @@ namespace TwistNTurnBridge
             Document.DocumentElement.Style.Width = "100vw";
             Document.DocumentElement.Style.Margin = "0";
             Document.DocumentElement.Style.Padding = "0";
-            display.Mesh = new Mesh(10, 10, MeshType.Square);
+            display.Mesh = new Mesh(4, 4, MeshType.Hexagonal3);
             //display.Mesh.Generate();
             display.Mesh = display.Mesh;
             Window.OnResize = App_Resize;
@@ -119,20 +127,8 @@ namespace TwistNTurnBridge
                 type = MeshType.Square;
             else if (typeName == "Square Symmetrical")
                 type = MeshType.SquareSymmetrical;
-            else if (typeName == "Triangle")
-                type = MeshType.Triangle;
-            else if (typeName == "Hexagon")
-                type = MeshType.Hexagonal;
-            else if (typeName == "Hexagon2")
-                type = MeshType.Hexagonal2;
             else if (typeName == "Hexagon3")
                 type = MeshType.Hexagonal3;
-            else if (typeName == "Octagon")
-                type = MeshType.Octagon;
-            else if (typeName == "Square2")
-                type = MeshType.Square2;
-            else if (typeName == "Pentagon")
-                type = MeshType.Pentagon;
             return type;
         }
 
@@ -140,7 +136,11 @@ namespace TwistNTurnBridge
         private static HTMLProgressElement progressBar;
         private static void OnClick(MouseEvent<HTMLButtonElement> mouseEvent)
         {
-            MeshType type = MeshType.Square;
+            MeshType type;
+            if (typePicker.SelectedIndex < 0)
+                type = MeshType.Square;
+            else
+                type = MeshTypeFromString(typePicker.Value);
             int width;
             int height;
             if (!ParseSize(sizeInput.Value, type, out width, out height))
@@ -246,40 +246,10 @@ self.onmessage = function(e) {
             height = 10;
             if (val.Length == 0)
             {
-                if (type == MeshType.Octagon)
-                {
-                    width = 5;
-                    height = 5;
-                }
-                else if (type == MeshType.Square2)
-                {
-                    width = 5;
-                    height = 5;
-                }
-                else if (type == MeshType.Hexagonal)
-                {
-                    width = 5;
-                    height = 10;
-                }
-                else if (type == MeshType.Hexagonal2)
-                {
-                    width = 6;
-                    height = 6;
-                }
-                else if (type == MeshType.Hexagonal3)
+                if (type == MeshType.Hexagonal3)
                 {
                     width = 4;
                     height = 4;
-                }
-                else if (type == MeshType.Triangle)
-                {
-                    width = 6;
-                    height = 6;
-                }
-                else if (type == MeshType.Pentagon)
-                {
-                    width = 6;
-                    height = 6;
                 }
                 return true;
             }

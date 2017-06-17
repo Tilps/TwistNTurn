@@ -6,6 +6,7 @@ using System.IO;
 #endif
 using System.Diagnostics;
 using System.Linq;
+using TwistNTurnBridge;
 
 namespace TwistNTurn
 {
@@ -147,12 +148,6 @@ namespace TwistNTurn
     public enum MeshType
     {
         Square,
-        Hexagonal,
-        Triangle,
-        Octagon,
-        Hexagonal2,
-        Square2,
-        Pentagon,
         Hexagonal3,
         SquareSymmetrical,
     }
@@ -484,204 +479,6 @@ namespace TwistNTurn
                     }
                 }
             }
-            else {
-                throw new NotSupportedException("Not implemented yet.");
-            }
-/*            else if (type == MeshType.Triangle)
-            {
-                for (int i = 0; i <= width; i++)
-                {
-                    for (int j = 0; j <= height; j++)
-                    {
-                        Intersection newInters = new Intersection();
-                        intersections.Add(newInters);
-                        newInters.X = i;
-                        newInters.X += 0.5f * (height - j);
-                        newInters.Y = (float)(j * Math.Sqrt(3) / 2);
-                    }
-
-                }
-                for (int i = 0; i <= width; i++)
-                {
-                    for (int j = 0; j <= height; j++)
-                    {
-                        int start = j + i * (height + 1);
-                        if (i < width)
-                        {
-                            int end = start + (height + 1);
-                            AddEdge(start, end);
-                        }
-                        if (j < height)
-                        {
-                            int end = start + 1;
-                            AddEdge(start, end);
-                        }
-                        if (i < width && j < height)
-                        {
-                            int end = start + (height + 1) + 1;
-                            AddEdge(start, end);
-                        }
-                    }
-                }
-                CreateCells();
-            }
-            else if (type == MeshType.Hexagonal)
-            {
-                int[,] grid = new int[width * 5 + 1, height * 3 + 1];
-                for (int i = 0; i < width * 5 + 1; i++)
-                {
-                    for (int j = 0; j < height * 3 + 1; j++)
-                        grid[i, j] = -1;
-                }
-                for (int i = 0; i < width; i++)
-                {
-                    for (int j = 0; j < height; j++)
-                    {
-                        List<int> intersects = new List<int>();
-                        int topX = i * 4 + (j % 2 == 1 ? 2 : 0);
-                        int topY = j;
-                        AddIntersectionOnGrid(grid, intersects, topX, topY + 1);
-                        AddIntersectionOnGrid(grid, intersects, topX + 1, topY);
-                        AddIntersectionOnGrid(grid, intersects, topX + 2, topY);
-                        AddIntersectionOnGrid(grid, intersects, topX + 3, topY + 1);
-                        AddIntersectionOnGrid(grid, intersects, topX + 2, topY + 2);
-                        AddIntersectionOnGrid(grid, intersects, topX + 1, topY + 2);
-                        AddPolyBoundry(intersects);
-                    }
-                }
-                CreateCells();
-            }
-            else if (type == MeshType.Octagon)
-            {
-                int[,] grid = new int[width * 5 + 1, height * 5 + 1];
-                for (int i = 0; i < width * 5 + 1; i++)
-                {
-                    for (int j = 0; j < height * 5 + 1; j++)
-                        grid[i, j] = -1;
-                }
-                for (int i = 0; i < width; i++)
-                {
-                    for (int j = 0; j < height; j++)
-                    {
-                        List<int> intersects = new List<int>();
-                        int topX = i * 3;
-                        int topY = j * 3;
-                        AddIntersectionOnGrid(grid, intersects, topX, topY + 1);
-                        AddIntersectionOnGrid(grid, intersects, topX + 1, topY);
-                        AddIntersectionOnGrid(grid, intersects, topX + 2, topY);
-                        AddIntersectionOnGrid(grid, intersects, topX + 3, topY + 1);
-                        AddIntersectionOnGrid(grid, intersects, topX + 3, topY + 2);
-                        AddIntersectionOnGrid(grid, intersects, topX + 2, topY + 3);
-                        AddIntersectionOnGrid(grid, intersects, topX + 1, topY + 3);
-                        AddIntersectionOnGrid(grid, intersects, topX, topY + 2);
-                        AddPolyBoundry(intersects);
-                    }
-                }
-                CreateCells();
-            }
-            else if (type == MeshType.Hexagonal2)
-            {
-                ApproxPointStorage storage = new ApproxPointStorage(0.001f);
-                float hexagonWidth = 1 + 2 * (float)Math.Cos(Math.PI / 3);
-                float hexagonHeight = 2 * (float)Math.Cos(Math.PI / 6);
-                float scalingFactor = 1.5f;
-                float hexagonWidthBit = (float)Math.Cos(Math.PI / 3) * scalingFactor;
-                hexagonHeight *= scalingFactor;
-                hexagonWidth *= scalingFactor;
-
-                for (int i = 0; i < width; i++)
-                {
-                    for (int j = 0; j < height; j++)
-                    {
-                        List<int> intersects = new List<int>();
-                        float topX = hexagonWidth * i + (j % 2 == 0 ? hexagonWidth / 2 : 0);
-                        float topY = hexagonHeight * j;
-                        AddIntersection(storage, intersects, topX, topY + hexagonHeight / 2);
-                        AddIntersection(storage, intersects, topX + hexagonWidthBit, topY);
-                        AddIntersection(storage, intersects, topX + hexagonWidthBit + scalingFactor, topY);
-                        AddIntersection(storage, intersects, topX + hexagonWidthBit * 2 + scalingFactor, topY + hexagonHeight / 2);
-                        AddIntersection(storage, intersects, topX + hexagonWidthBit + scalingFactor, topY + hexagonHeight);
-                        AddIntersection(storage, intersects, topX + hexagonWidthBit, topY + hexagonHeight);
-                        AddPolyBoundry(intersects);
-                    }
-                }
-                CreateCells();
-            }
-            else if (type == MeshType.Square2)
-            {
-                ApproxPointStorage storage = new ApproxPointStorage(0.001f);
-                float triangleBit = (float)Math.Cos(Math.PI / 6);
-                float scalingFactor = 1.5f;
-                triangleBit *= scalingFactor;
-
-                for (int i = 0; i < width; i++)
-                {
-                    for (int j = 0; j < height; j++)
-                    {
-                        List<int> intersects = new List<int>();
-                        float topX = scalingFactor * (height - j) / 2 + i * (scalingFactor + triangleBit);
-                        float topY = scalingFactor * (i) / 2 + j * (scalingFactor + triangleBit);
-                        AddIntersection(storage, intersects, topX, topY + triangleBit + scalingFactor / 2);
-                        AddIntersection(storage, intersects, topX + triangleBit, topY + triangleBit);
-                        AddIntersection(storage, intersects, topX + triangleBit, topY + triangleBit + scalingFactor);
-                        AddPolyBoundry(intersects);
-                        intersects.Clear();
-                        AddIntersection(storage, intersects, topX + triangleBit + scalingFactor / 2, topY);
-                        AddIntersection(storage, intersects, topX + triangleBit + scalingFactor, topY + triangleBit);
-                        AddIntersection(storage, intersects, topX + triangleBit, topY + triangleBit);
-                        AddPolyBoundry(intersects);
-                        intersects.Clear();
-                        AddIntersection(storage, intersects, topX + triangleBit * 2 + scalingFactor, topY + triangleBit + scalingFactor / 2);
-                        AddIntersection(storage, intersects, topX + triangleBit + scalingFactor, topY + triangleBit);
-                        AddIntersection(storage, intersects, topX + triangleBit + scalingFactor, topY + triangleBit + scalingFactor);
-                        AddPolyBoundry(intersects);
-                        intersects.Clear();
-                        AddIntersection(storage, intersects, topX + triangleBit + scalingFactor / 2, topY + triangleBit * 2 + scalingFactor);
-                        AddIntersection(storage, intersects, topX + triangleBit, topY + triangleBit + scalingFactor);
-                        AddIntersection(storage, intersects, topX + triangleBit + scalingFactor, topY + triangleBit + scalingFactor);
-                        AddPolyBoundry(intersects);
-                        intersects.Clear();
-                    }
-                }
-                CreateCells();
-            }
-            else if (type == MeshType.Pentagon)
-            {
-                ApproxPointStorage storage = new ApproxPointStorage(0.001f);
-                float scalingFactor = 1.5f;
-                float pentTopHeight = (float)Math.Cos(Math.PI / 2 - Math.PI / 5) * scalingFactor;
-                float pentTopWidth = (float)Math.Sin(Math.PI / 2 - Math.PI / 5) * scalingFactor;
-                float pentBottomWidth = (float)Math.Sin(Math.PI / 10) * scalingFactor;
-                float pentBottomHeight = (float)Math.Cos(Math.PI / 10) * scalingFactor;
-
-                for (int i = 0; i < width; i++)
-                {
-                    for (int j = 0; j < height; j++)
-                    {
-                        List<int> intersects = new List<int>();
-                        float topX = pentTopWidth * 2 * i + (j % 4 > 1 ? pentTopWidth : 0);
-                        float topY = pentBottomHeight * j + pentTopHeight * ((j + 1) / 2);
-                        if (j % 2 == 0)
-                        {
-                            AddIntersection(storage, intersects, topX, topY + pentTopHeight);
-                            AddIntersection(storage, intersects, topX + pentTopWidth, topY);
-                            AddIntersection(storage, intersects, topX + 2 * pentTopWidth, topY + pentTopHeight);
-                            AddIntersection(storage, intersects, topX + pentBottomWidth + scalingFactor, topY + pentTopHeight + pentBottomHeight);
-                            AddIntersection(storage, intersects, topX + pentBottomWidth, topY + pentTopHeight + pentBottomHeight);
-                        }
-                        else
-                        {
-                            AddIntersection(storage, intersects, topX + pentBottomWidth, topY);
-                            AddIntersection(storage, intersects, topX + pentBottomWidth + scalingFactor, topY);
-                            AddIntersection(storage, intersects, topX + 2 * pentTopWidth, topY + pentBottomHeight);
-                            AddIntersection(storage, intersects, topX + pentTopWidth, topY + pentTopHeight + pentBottomHeight);
-                            AddIntersection(storage, intersects, topX, topY + pentBottomHeight);
-                        }
-                        AddPolyBoundry(intersects);
-                    }
-                }
-                CreateCells();
-            }
             else if (type == MeshType.Hexagonal3)
             {
                 ApproxPointStorage storage = new ApproxPointStorage(0.001f);
@@ -737,9 +534,9 @@ namespace TwistNTurn
                         intersects.Clear();
                     }
                 }
+                CreateOpposites();
                 CreateCells();
             }
- */
             FullClear();
         }
         #endregion
@@ -833,6 +630,37 @@ namespace TwistNTurn
         private int ReverseEdge(int e, int i)
         {
             int otherI = GetOtherInters(e, i);
+            float startX = intersections[i].X;
+            float startY = intersections[i].Y;
+            float endX = intersections[otherI].X;
+            float endY = intersections[otherI].Y;
+            double idealAngle = Math.Atan2(startY - endY, startX - endX);
+            // In hexagon/square/triangle the 'ideal candidate' might be 30 degrees off.
+            // So this gives a tolerance of 36 degrees to ensure it isn't missed, but reduce probability
+            // of a scenario where we incorrectly choose an edge as opposite.
+            // In practice both square and hexagon/square/triangle only have scenarios of 90 degrees being
+            // the closest potential incorect candidate when there should be no candidate.
+            double bestAngle = Math.PI / 5;
+            int bestCandidate = -1;
+
+            for (int j = 0; j < intersections[i].Edges.Count; j++)
+            {
+                if (intersections[i].Edges[j] == e) continue;
+                int candidate = GetOtherInters(intersections[i].Edges[j], i);
+                float candidateX = intersections[candidate].X;
+                float candidateY = intersections[candidate].Y;
+                double candidateAngle = Math.Atan2(candidateY - startY, candidateX - startX);
+                double angleDiff = Math.Abs(idealAngle - candidateAngle);
+
+                if (angleDiff >= Math.PI) angleDiff = 2*Math.PI - angleDiff;
+                if (angleDiff < bestAngle)
+                {
+                    bestAngle = angleDiff;
+                    bestCandidate = intersections[i].Edges[j];
+                }
+            }
+            return bestCandidate;
+            /*
             // TODO - support other than square.
             // TODO - optimize this to not result in quadratic performance in number of intersections.
             int startX = (int)intersections[i].X;
@@ -869,6 +697,7 @@ namespace TwistNTurn
                 }
                 return result == -1 ? -1 : GetEdgeJoining(i, result);
             }
+            */
         }
 
         private List<List<int>> CreateCells(int i)
@@ -1519,7 +1348,10 @@ namespace TwistNTurn
                         if (i < 7)
                             ClearTwists();
                         else
+                        {
+                            ClearTwists();
                             UpdateTwists();
+                        }
                     }
                 }
                 finally
