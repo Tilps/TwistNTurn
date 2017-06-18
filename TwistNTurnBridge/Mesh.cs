@@ -5190,7 +5190,7 @@ namespace TwistNTurn
 
         private bool GatherFromColoringOptions(List<IAction>[] moves, int curDepth, EdgeState[] edgesSeen, int[] numberingFull, int[] edgeNumber, List<int> targets_in, TriState[,] edgePairsSeen, EdgePairRestriction[,] edgeRestrictsSeen)
         {
-            List<KeyValuePair<int, List<int>>> targets = new List<KeyValuePair<int, List<int>>> { new KeyValuePair<int, List<int>>((1 << numberingFull.Length) - 1, targets_in) };
+            List<KeyValuePair<uint, List<int>>> targets = new List<KeyValuePair<uint, List<int>>> { new KeyValuePair<uint, List<int>>((1u << numberingFull.Length) - 1, targets_in) };
             return GatherFromAdvancedOptions(moves, curDepth, edgesSeen, numberingFull, edgeNumber, targets, edgePairsSeen, edgeRestrictsSeen);
         }
 
@@ -5264,7 +5264,7 @@ namespace TwistNTurn
             return map;
         }
 
-        private bool GatherFromAdvancedOptions(List<IAction>[] moves, int curDepth, EdgeState[] edgesSeen, int[] numberingFull, int[] edgeNumber, List<KeyValuePair<int, List<int>>> targets, TriState[,] edgePairsSeen, EdgePairRestriction[,] edgeRestrictsSeen)
+        private bool GatherFromAdvancedOptions(List<IAction>[] moves, int curDepth, EdgeState[] edgesSeen, int[] numberingFull, int[] edgeNumber, List<KeyValuePair<uint, List<int>>> targets, TriState[,] edgePairsSeen, EdgePairRestriction[,] edgeRestrictsSeen)
         {
             int[] baseLine = new int[targets.Count];
             int[] numberingCleared = new int[numberingFull.Length];
@@ -5364,7 +5364,7 @@ namespace TwistNTurn
 
         private struct PatternLookup
         {
-            public List<KeyValuePair<int, List<int>>> targets; 
+            public List<KeyValuePair<uint, List<int>>> targets; 
             public int[] baseLine; 
             public int curNumber; 
             public int[] numbering;
@@ -5416,8 +5416,8 @@ namespace TwistNTurn
                     return false;
                 for (int i = 0; i < targets.Count; i++)
                 {
-                    KeyValuePair<int, List<int>> entry = targets[i];
-                    KeyValuePair<int, List<int>> otherEntry = other.targets[i];
+                    KeyValuePair<uint, List<int>> entry = targets[i];
+                    KeyValuePair<uint, List<int>> otherEntry = other.targets[i];
 
                     if (otherEntry.Key != entry.Key)
                         return false;
@@ -5458,7 +5458,7 @@ namespace TwistNTurn
         Dictionary<PatternLookup, List<int[]>> patternLookup = new Dictionary<PatternLookup, List<int[]>>();
         List<uint> emptyList = new List<uint>();
 
-        private List<int[]> RetrieveActions(List<KeyValuePair<int, List<int>>> targets, int[] baseLine, int curNumber, int[] numbering)
+        private List<int[]> RetrieveActions(List<KeyValuePair<uint, List<int>>> targets, int[] baseLine, int curNumber, int[] numbering)
         {
             List<int[]> result;
             PatternLookup key;
@@ -5484,10 +5484,10 @@ namespace TwistNTurn
                 int[] countsAgainst = new int[targets.Count * curNumber];
                 for (int j = 0; j < targets.Count; j++)
                 {
-                    int checkPattern = targets[j].Key;
+                    uint checkPattern = targets[j].Key;
                     for (int i = 0; i < numbering.Length; i++)
                     {
-                        if ((checkPattern & (1u << i)) != 0)
+                        if ((checkPattern & (1u << i)) != 0u)
                         {
                             if (numbering[i] > 0)
                                 countsFor[j * curNumber + numbering[i] - 1]++;
