@@ -875,11 +875,13 @@ namespace TwistNTurn
                         {
                             Edge e = edges[next];
                             List<int> oneAway = new List<int>();
-                            foreach (int inters in e.Intersections)
+                            for (var index = 0; index < e.Intersections.Length; index++)
                             {
+                                int inters = e.Intersections[index];
                                 Intersection i = intersections[inters];
-                                foreach (int other in i.Edges)
+                                for (var index2 = 0; index2 < i.Edges.Count; index2++)
                                 {
+                                    int other = i.Edges[index2];
                                     if (other != next)
                                         oneAway.Add(other);
                                 }
@@ -889,8 +891,9 @@ namespace TwistNTurn
                                 int toMe = edgeDistancesCache[next, i];
                                 if (toMe != int.MaxValue)
                                 {
-                                    foreach (int other in oneAway)
+                                    for (var index = 0; index < oneAway.Count; index++)
                                     {
+                                        int other = oneAway[index];
                                         if (edgeDistancesCache[other, i] > toMe + 1)
                                         {
                                             edgeDistancesCache[other, i] = edgeDistancesCache[i, other] = toMe + 1;
@@ -1706,8 +1709,9 @@ namespace TwistNTurn
             Edge prevEdge = edges[prevInters.Edges[prevIntersEdge]];
             Intersection curInters = null;
             int curIntersIndex = -1;
-            foreach (int intersPos in prevEdge.Intersections)
+            for (var i = 0; i < prevEdge.Intersections.Length; i++)
             {
+                int intersPos = prevEdge.Intersections[i];
                 Intersection other = intersections[intersPos];
                 if (other != prevInters)
                 {
@@ -1745,8 +1749,9 @@ namespace TwistNTurn
                 }
             }
             List<IAction> backup = new List<IAction>();
-            foreach (int availEdge in availEdges)
+            for (var i2 = 0; i2 < availEdges.Count; i2++)
             {
+                int availEdge = availEdges[i2];
                 backup.Clear();
                 int edgeIndex = curInters.Edges[availEdge];
                 Perform(edgeIndex, EdgeState.Filled, backup, 0);
@@ -1757,7 +1762,6 @@ namespace TwistNTurn
                     Edge edge = edges[otherEdgeIndex];
                     if (edge.State == EdgeState.Empty)
                         Perform(otherEdgeIndex, EdgeState.Excluded, backup, 0);
-
                 }
                 if (!CreateLoop(rnd, start, curIntersIndex, availEdge))
                 {
@@ -1780,13 +1784,15 @@ namespace TwistNTurn
             {
                 int index = newReached[i];
                 Intersection inters = intersections[index];
-                foreach (int edgeIndex in inters.Edges)
+                for (int j=0; j < inters.Edges.Count; j++)
                 {
+                    int edgeIndex = inters.Edges[j];
                     Edge edge = edges[edgeIndex];
                     if (edge.State == EdgeState.Empty)
                     {
-                        foreach (int otherInters in edge.Intersections)
+                        for (int k=0; k < edge.Intersections.Length; k++)
                         {
+                            int otherInters = edge.Intersections[k];
                             if (otherInters != index)
                             {
                                 if (!reached[otherInters])
@@ -3071,31 +3077,36 @@ namespace TwistNTurn
 
         private void GatherLocals(List<IAction> realChanges, List<IAction> trials, IAction locusAction)
         {
-            foreach (IAction action in realChanges)
+            for (var i = 0; i < realChanges.Count; i++)
             {
+                IAction action = realChanges[i];
                 if (action is SetAction)
                 {
-                    SetAction setAction = (SetAction)action;
-                    foreach (int edge in setAction.GetAffectedEdges())
+                    SetAction setAction = (SetAction) action;
+                    for (var j = 0; j < setAction.GetAffectedEdges().Count; j++)
                     {
+                        int edge = setAction.GetAffectedEdges()[j];
                         GatherNearEdge(trials, edge, locusAction, true);
                     }
                 }
                 else if (action is ColorJoinAction)
                 {
-                    ColorJoinAction cjAction = (ColorJoinAction)action;
-                    foreach (int edge in cjAction.GetAffectedEdges())
+                    ColorJoinAction cjAction = (ColorJoinAction) action;
+                    for (var j = 0; j < cjAction.GetAffectedEdges().Count; j++)
                     {
+                        int edge = cjAction.GetAffectedEdges()[j];
                         GatherNearEdge(trials, edge, locusAction, true);
                     }
                 }
                 else if (action is CellColorJoinAction)
                 {
-                    CellColorJoinAction ccjAction = (CellColorJoinAction)action;
-                    foreach (int cell in ccjAction.GetAffectedCells())
+                    CellColorJoinAction ccjAction = (CellColorJoinAction) action;
+                    for (var j = 0; j < ccjAction.GetAffectedCells().Count; j++)
                     {
-                        foreach (int edge in cells[cell].Edges)
+                        int cell = ccjAction.GetAffectedCells()[j];
+                        for (var k = 0; k < cells[cell].Edges.Count; k++)
                         {
+                            int edge = cells[cell].Edges[k];
                             GatherNearEdge(trials, edge, locusAction, false);
                         }
                     }
@@ -3355,6 +3366,7 @@ namespace TwistNTurn
         bool[] interactsSeen;
         bool[] interactsSeen2;
         bool[] interactsSeen3;
+        private bool[] colorSetsSeen;
 
         public bool UseColoring
         {
@@ -3549,7 +3561,6 @@ namespace TwistNTurn
             if (initialIntersectsAffected != null)
                 toConsiderIntersects[0].AddRange(initialIntersectsAffected);
 
-            List<int> colorSetsSeen = new List<int>();
             if (edgesSeen == null)
                 edgesSeen = new EdgeState[edges.Count];
             else
@@ -3578,6 +3589,12 @@ namespace TwistNTurn
                 interactsSeen2 = new bool[intersections.Count];
             if (interactsSeen3 == null)
                 interactsSeen3 = new bool[edges.Count];
+            if (colorSetsSeen == null)
+                colorSetsSeen = new bool[edges.Count];
+            else
+            {
+                Array.Clear(colorSetsSeen, 0, colorSetsSeen.Length);
+            }
             for (int curDepth = 0; curDepth <= maxDepth; curDepth++)
             {
                 if (moves[curDepth].Count == 0 &&
@@ -3590,8 +3607,10 @@ namespace TwistNTurn
                     continue;
                 if (curDepth > deepestNonEmpty)
                     deepestNonEmpty = curDepth;
-                foreach (IAction move in moves[curDepth])
+                List<IAction> movesCurDepth = moves[curDepth];
+                for (var i = 0; i < movesCurDepth.Count; i++)
                 {
+                    IAction move = movesCurDepth[i];
                     if (!move.Perform())
                         return false;
                     if (superSlowMo)
@@ -3622,39 +3641,47 @@ namespace TwistNTurn
                 Array.Clear(interactsSeen3, 0, interactsSeen3.Length);
 
                 // Now that moves have been performed, we extract their deepest darkest secrets to work out what needs considering.
-                foreach (IAction move in moves[curDepth])
+                for (var i = 0; i < movesCurDepth.Count; i++)
                 {
+                    IAction move = movesCurDepth[i];
                     if (move is SetAction)
                     {
-                        SetAction setAction = (SetAction)move;
+                        SetAction setAction = (SetAction) move;
                         AddEdgetToConsider(action, toConsiderEdges, curDepth, setAction.EdgeIndex);
-                        foreach (int edge in setAction.GetAffectedEdges())
+                        var affectedEdges = setAction.GetAffectedEdges();
+                        for (var j = 0; j < affectedEdges.Count; j++)
                         {
+                            int edge = affectedEdges[j];
                             AddEdgetToConsider(action, toConsiderEdgeSets, curDepth, edge);
                         }
                     }
                     else if (move is ColorJoinAction)
                     {
-                        ColorJoinAction cjAction = (ColorJoinAction)move;
-                        foreach (int edge in cjAction.GetAffectedEdges())
+                        ColorJoinAction cjAction = (ColorJoinAction) move;
+                        var affectedEdges = cjAction.GetAffectedEdges();
+                        for (var j = 0; j < affectedEdges.Count; j++)
                         {
+                            int edge = affectedEdges[j];
                             AddEdgetToConsider(action, toConsiderEdgeColors, curDepth, edge);
                         }
                     }
                     else if (move is CellColorJoinAction)
                     {
-                        CellColorJoinAction ccjAction = (CellColorJoinAction)move;
-                        foreach (int cell in ccjAction.GetAffectedCells())
+                        CellColorJoinAction ccjAction = (CellColorJoinAction) move;
+                        var affectedCells = ccjAction.GetAffectedCells();
+                        for (var j = 0; j < affectedCells.Count; j++)
                         {
+                            int cell = affectedCells[j];
                             AddCellToConsider(action, toConsiderCellColors, curDepth, cell);
                         }
-
                     }
                     else if (move is EdgeRestrictionAction)
                     {
-                        EdgeRestrictionAction erAction = (EdgeRestrictionAction)move;
-                        foreach (int edge in erAction.GetAffectedEdges())
+                        EdgeRestrictionAction erAction = (EdgeRestrictionAction) move;
+                        var affectedEdges = erAction.GetAffectedEdges();
+                        for (var j = 0; j < affectedEdges.Count; j++)
                         {
+                            int edge = affectedEdges[j];
                             AddEdgetToConsider(action, toConsiderEdgeColors, curDepth, edge);
                         }
                     }
@@ -3665,13 +3692,13 @@ namespace TwistNTurn
                 toConsiderIntersects[curDepth].Sort();
                 toConsiderCellColors[curDepth].Sort();
 
-                if (!ConsiderEdges(moves, toConsiderEdges, curDepth, colorSetsSeen))
+                if (!ConsiderEdges(moves, toConsiderEdges, curDepth))
                     return false;
                 if (!ConsiderIntersects(moves, toConsiderIntersects, curDepth))
                     return false;
                 if (!ConsiderEdgeSets(moves, toConsiderEdgeSets, curDepth))
                     return false;
-                if (!ConsiderEdgeColors(moves, toConsiderEdgeColors, colorSetsSeen, curDepth))
+                if (!ConsiderEdgeColors(moves, toConsiderEdgeColors, curDepth))
                     return false;
                 if (!ConsiderCellColors(moves, toConsiderCellColors, curDepth))
                     return false;
@@ -3682,8 +3709,9 @@ namespace TwistNTurn
 
         private void ClearCellPairs()
         {
-            foreach (KeyValuePair<int, int> kvp in cellPairsToClean)
+            for (var i = 0; i < cellPairsToClean.Count; i++)
             {
+                KeyValuePair<int, int> kvp = cellPairsToClean[i];
                 cellPairsSeen[kvp.Key, kvp.Value] = TriState.Unknown;
                 cellPairsSeen[kvp.Value, kvp.Key] = TriState.Unknown;
             }
@@ -3692,8 +3720,9 @@ namespace TwistNTurn
 
         private void ClearEdgeRestricts()
         {
-            foreach (KeyValuePair<int, int> kvp in edgeRestrictsToClean)
+            for (var i = 0; i < edgeRestrictsToClean.Count; i++)
             {
+                KeyValuePair<int, int> kvp = edgeRestrictsToClean[i];
                 edgeRestrictsSeen[kvp.Key, kvp.Value] = EdgePairRestriction.None;
                 edgeRestrictsSeen[kvp.Value, kvp.Key] = EdgePairRestriction.None;
             }
@@ -3702,8 +3731,9 @@ namespace TwistNTurn
 
         private void ClearEdgePairs()
         {
-            foreach (KeyValuePair<int, int> kvp in edgePairsToClean)
+            for (var i = 0; i < edgePairsToClean.Count; i++)
             {
+                KeyValuePair<int, int> kvp = edgePairsToClean[i];
                 edgePairsSeen[kvp.Key, kvp.Value] = TriState.Unknown;
                 edgePairsSeen[kvp.Value, kvp.Key] = TriState.Unknown;
             }
@@ -3715,8 +3745,9 @@ namespace TwistNTurn
             if (useCellColoring)
             {
                 int lastCell = -1;
-                foreach (int cellColorIndex in toConsiderCellColors[curDepth])
+                for (var i = 0; i < toConsiderCellColors[curDepth].Count; i++)
                 {
+                    int cellColorIndex = toConsiderCellColors[curDepth][i];
                     if (cellColorIndex == lastCell)
                         continue;
                     lastCell = cellColorIndex;
@@ -3727,7 +3758,8 @@ namespace TwistNTurn
                     if (!cellColorEdgeColorsSeen[cellColorIndex])
                     {
                         cellColorEdgeColorsSeen[cellColorIndex] = true;
-                        if (!GatherCellColoringEdgeColoringMovesForCellColorChange(cell, moves, curDepth, cellColorIndex))
+                        if (!GatherCellColoringEdgeColoringMovesForCellColorChange(cell, moves, curDepth,
+                            cellColorIndex))
                             return false;
                     }
                 }
@@ -3735,13 +3767,14 @@ namespace TwistNTurn
             return true;
         }
 
-        private bool ConsiderEdgeColors(List<IAction>[] moves, List<int>[] toConsiderEdgeColors, List<int> colorSetsSeen, int curDepth)
+        private bool ConsiderEdgeColors(List<IAction>[] moves, List<int>[] toConsiderEdgeColors, int curDepth)
         {
             if (UseColoring || UseEdgeRestricts)
             {
                 int lastEdge = -1;
-                foreach (int edgeAffectedIndex in toConsiderEdgeColors[curDepth])
+                for (var i = 0; i < toConsiderEdgeColors[curDepth].Count; i++)
                 {
+                    int edgeAffectedIndex = toConsiderEdgeColors[curDepth][i];
                     if (edgeAffectedIndex == lastEdge)
                         continue;
                     lastEdge = edgeAffectedIndex;
@@ -3758,12 +3791,13 @@ namespace TwistNTurn
                         else
                             interactsSeen2[intersIndex] = true;
                         Intersection inters = intersections[intersIndex];
-                        if (!GatherInteractForcedMoves(inters, moves, curDepth, edgesSeen, edgePairsSeen, edgeRestrictsSeen))
+                        if (!GatherInteractForcedMoves(inters, moves, curDepth, edgesSeen, edgePairsSeen,
+                            edgeRestrictsSeen))
                             return false;
                     }
                     if (edge.Color != 0)
                     {
-                        if (!GatherFollowColoringColorSetChanged(moves, curDepth, edge, edgesSeen, edgeAffectedIndex, colorSetsSeen))
+                        if (!GatherFollowColoringColorSetChanged(moves, curDepth, edge, edgesSeen, edgeAffectedIndex))
                             return false;
                     }
                     if (!GatherFollowEdgeRestrictions(moves, curDepth, edge, edgesSeen, edgeAffectedIndex))
@@ -3811,8 +3845,9 @@ namespace TwistNTurn
             if (considerMultipleLoops)
             {
                 int lastEdge = -1;
-                foreach (int edgeAffectedIndex in toConsiderEdgeSets[curDepth])
+                for (var i = 0; i < toConsiderEdgeSets[curDepth].Count; i++)
                 {
+                    int edgeAffectedIndex = toConsiderEdgeSets[curDepth][i];
                     if (edgeAffectedIndex == lastEdge)
                         continue;
                     lastEdge = edgeAffectedIndex;
@@ -3827,8 +3862,9 @@ namespace TwistNTurn
         private bool ConsiderIntersects(List<IAction>[] moves, List<int>[] toConsiderIntersects, int curDepth)
         {
             int lastIntersect = -1;
-            foreach (int intersectIndex in toConsiderIntersects[curDepth])
+            for (var i = 0; i < toConsiderIntersects[curDepth].Count; i++)
             {
+                int intersectIndex = toConsiderIntersects[curDepth][i];
                 if (intersectIndex == lastIntersect)
                     continue;
                 lastIntersect = intersectIndex;
@@ -3839,13 +3875,14 @@ namespace TwistNTurn
                     if (!GatherIntersectionForcedMoves(inters, moves, curDepth, edgesSeen, intersectIndex))
                         return false;
                 }
-                
-                if ( UseColoring || UseEdgeRestricts)
+
+                if (UseColoring || UseEdgeRestricts)
                 {
                     if (!interactsSeen2[intersectIndex])
                     {
                         interactsSeen2[intersectIndex] = true;
-                        if (!GatherInteractForcedMoves(inters, moves, curDepth, edgesSeen, edgePairsSeen, edgeRestrictsSeen))
+                        if (!GatherInteractForcedMoves(inters, moves, curDepth, edgesSeen, edgePairsSeen,
+                            edgeRestrictsSeen))
                             return false;
                     }
                 }
@@ -3868,19 +3905,21 @@ namespace TwistNTurn
             return true;
         }
 
-        private bool ConsiderEdges(List<IAction>[] moves, List<int>[] toConsiderEdges, int curDepth, List<int> colorSetsSeen)
+        private bool ConsiderEdges(List<IAction>[] moves, List<int>[] toConsiderEdges, int curDepth)
         {
             int lastEdge = -1;
-            foreach (int edgeAffectedIndex in toConsiderEdges[curDepth])
+            for (var i = 0; i < toConsiderEdges[curDepth].Count; i++)
             {
+                int edgeAffectedIndex = toConsiderEdges[curDepth][i];
                 if (edgeAffectedIndex == lastEdge)
                     continue;
                 lastEdge = edgeAffectedIndex;
 
                 Edge edge = edges[edgeAffectedIndex];
 
-                foreach (int intersIndex in edge.Intersections)
+                for (var j = 0; j < edge.Intersections.Length; j++)
                 {
+                    int intersIndex = edge.Intersections[j];
                     if (intersectsSeen[intersIndex])
                         continue;
                     else
@@ -3891,14 +3930,16 @@ namespace TwistNTurn
                 }
                 if (UseColoring || UseEdgeRestricts)
                 {
-                    foreach (int intersIndex in edge.Intersections)
+                    for (var j = 0; j < edge.Intersections.Length; j++)
                     {
+                        int intersIndex = edge.Intersections[j];
                         if (interactsSeen2[intersIndex])
                             continue;
                         else
                             interactsSeen2[intersIndex] = true;
                         Intersection inters = intersections[intersIndex];
-                        if (!GatherInteractForcedMoves(inters, moves, curDepth, edgesSeen, edgePairsSeen, edgeRestrictsSeen))
+                        if (!GatherInteractForcedMoves(inters, moves, curDepth, edgesSeen, edgePairsSeen,
+                            edgeRestrictsSeen))
                             return false;
                     }
                 }
@@ -3941,7 +3982,7 @@ namespace TwistNTurn
                 {
                     if (edge.Color != 0)
                     {
-                        if (!GatherFollowColoring(moves, curDepth, edge, edgesSeen, edgeAffectedIndex, colorSetsSeen))
+                        if (!GatherFollowColoring(moves, curDepth, edge, edgesSeen, edgeAffectedIndex))
                             return false;
                     }
                 }
@@ -3979,14 +4020,16 @@ namespace TwistNTurn
 
         private bool GatherExcludeClosingLoopEarly(List<IAction>[] moves, int curDepth, int edgeAffectedIndex, Edge edge, EdgeState[] edgesSeen)
         {
-            foreach (int intersIndex in edge.Intersections)
+            for (var i2 = 0; i2 < edge.Intersections.Length; i2++)
             {
+                int intersIndex = edge.Intersections[i2];
                 Intersection inters = intersections[intersIndex];
                 if (inters.FilledCount != 1)
                     continue;
-                foreach (int otherEdgeIndex in inters.Edges)
+                for (var j = 0; j < inters.Edges.Count; j++)
                 {
-                    // If this edge is still empty, there is no reason why we shouldn't check it for closing the loop early.
+                    int otherEdgeIndex = inters.Edges[j];
+// If this edge is still empty, there is no reason why we shouldn't check it for closing the loop early.
                     //if (otherEdgeIndex == edgeAffectedIndex)
                     //    continue;
                     Edge otherEdge = edges[otherEdgeIndex];
@@ -4044,15 +4087,16 @@ namespace TwistNTurn
             return true;
         }
 
-        private bool GatherFollowColoringColorSetChanged(List<IAction>[] moves, int curDepth, Edge edge, EdgeState[] edgesSeen, int edgeIndex, List<int> colorSetsSeen)
+        private bool GatherFollowColoringColorSetChanged(List<IAction>[] moves, int curDepth, Edge edge, EdgeState[] edgesSeen, int edgeIndex)
         {
             List<int> colorSet;
             colorSet = colorSets[Math.Abs(edge.Color) - 1];
             // Stop caching that we have seen this if we were.
-            colorSetsSeen.Remove(Math.Abs(edge.Color) - 1);
+            colorSetsSeen[Math.Abs(edge.Color) - 1] = false;
             EdgeState posState = EdgeState.Empty;
-            foreach (int i in colorSet)
+            for (var index = 0; index < colorSet.Count; index++)
             {
+                int i = colorSet[index];
                 if (i == edgeIndex)
                     continue;
                 Edge toCheck = edges[i];
@@ -4080,15 +4124,17 @@ namespace TwistNTurn
             }
             return true;
         }
-        private bool GatherFollowColoring(List<IAction>[] moves, int curDepth, Edge edge, EdgeState[] edgesSeen, int edgeIndex, List<int> colorSetsSeen)
+
+        private bool GatherFollowColoring(List<IAction>[] moves, int curDepth, Edge edge, EdgeState[] edgesSeen, int edgeIndex)
         {
             List<int> colorSet;
             colorSet = colorSets[Math.Abs(edge.Color) - 1];
-            if (colorSetsSeen.Contains(Math.Abs(edge.Color) - 1))
+            if (colorSetsSeen[Math.Abs(edge.Color) - 1])
                 return true;
-            colorSetsSeen.Add(Math.Abs(edge.Color) - 1);
-            foreach (int i in colorSet)
+            colorSetsSeen[Math.Abs(edge.Color) - 1] = true;
+            for (var index = 0; index < colorSet.Count; index++)
             {
+                int i = colorSet[index];
                 int dist = edgeDistances[i, edgeIndex];
                 if (curDepth + dist >= moves.Length)
                     continue;
@@ -4121,11 +4167,13 @@ namespace TwistNTurn
                 return true;
             if (edge.State == EdgeState.Empty)
                 return true;
-            foreach (int inters in edge.Intersections)
+            for (var i = 0; i < edge.Intersections.Length; i++)
             {
+                int inters = edge.Intersections[i];
                 Intersection inter = intersections[inters];
-                foreach (int otherEdgeIndex in inter.Edges)
+                for (var j = 0; j < inter.Edges.Count; j++)
                 {
+                    int otherEdgeIndex = inter.Edges[j];
                     if (otherEdgeIndex == edgeIndex)
                         continue;
                     Edge toCheck = edges[otherEdgeIndex];
@@ -4156,11 +4204,13 @@ namespace TwistNTurn
                     }
                 }
             }
-            foreach (int cellIndex in edge.Cells)
+            for (var i = 0; i < edge.Cells.Count; i++)
             {
+                int cellIndex = edge.Cells[i];
                 Cell cell = cells[cellIndex];
-                foreach (int otherEdgeIndex in cell.Edges)
+                for (var j = 0; j < cell.Edges.Count; j++)
                 {
+                    int otherEdgeIndex = cell.Edges[j];
                     if (otherEdgeIndex == edgeIndex)
                         continue;
                     Edge toCheck = edges[otherEdgeIndex];
@@ -4277,8 +4327,9 @@ namespace TwistNTurn
             }
             if (toPerform != EdgeState.Empty)
             {
-                foreach (int otherEdgeIndex in inters.Edges)
+                for (var i = 0; i < inters.Edges.Count; i++)
                 {
+                    int otherEdgeIndex = inters.Edges[i];
                     Edge otherEdge = edges[otherEdgeIndex];
                     if (otherEdge.State == EdgeState.Empty)
                     {
@@ -4592,8 +4643,9 @@ namespace TwistNTurn
         {
             if (useCellColoring)
             {
-                foreach (int edge in cell.Edges)
+                for (var i = 0; i < cell.Edges.Count; i++)
                 {
+                    int edge = cell.Edges[i];
                     Edge e = edges[edge];
                     if (!GatherCellColoringMoves(e, moves, curDepth, edgesSeen, edge))
                         return false;
@@ -4610,8 +4662,9 @@ namespace TwistNTurn
                 int cellIndex = -2;
                 Cell otherCell = null;
                 int otherC = -2;
-                foreach (int c in e.Cells)
+                for (var i = 0; i < e.Cells.Count; i++)
                 {
+                    int c = e.Cells[i];
                     if (cellIndex == -2)
                     {
                         cellIndex = c;
@@ -5329,8 +5382,9 @@ namespace TwistNTurn
 
         private bool ProcessRetrievedActions(List<IAction>[] moves, int curDepth, EdgeState[] edgesSeen, int[] edgeNumber, TriState[,] edgePairsSeen, EdgePairRestriction[,] edgeRestrictsSeen, List<int[]> result)
         {
-            foreach (int[] action in result)
+            for (var i = 0; i < result.Count; i++)
             {
+                int[] action = result[i];
                 if (action[0] == 0)
                 {
                     int j = action[1];
@@ -5338,7 +5392,8 @@ namespace TwistNTurn
                     Edge e = edges[edgeNumber[j]];
                     if (e.State == EdgeState.Empty)
                     {
-                        if (!AddSetAction(edgeNumber[j], (reallyFilled ? EdgeState.Filled : EdgeState.Excluded), moves, curDepth + 1, edgesSeen))
+                        if (!AddSetAction(edgeNumber[j], (reallyFilled ? EdgeState.Filled : EdgeState.Excluded), moves,
+                            curDepth + 1, edgesSeen))
                             return false;
                     }
                 }
@@ -5354,8 +5409,11 @@ namespace TwistNTurn
                 {
                     int n = action[1];
                     int m = action[2];
-                    EdgePairRestriction restr = action[3] == 1 ? EdgePairRestriction.NotBoth : EdgePairRestriction.NotNeither;
-                    if (!AddEdgeRestrictAction(edgeNumber[n], edgeNumber[m], restr, moves, curDepth + 1, edgeRestrictsSeen, edgePairsSeen))
+                    EdgePairRestriction restr = action[3] == 1
+                        ? EdgePairRestriction.NotBoth
+                        : EdgePairRestriction.NotNeither;
+                    if (!AddEdgeRestrictAction(edgeNumber[n], edgeNumber[m], restr, moves, curDepth + 1,
+                        edgeRestrictsSeen, edgePairsSeen))
                         return false;
                 }
             }
@@ -5376,35 +5434,35 @@ namespace TwistNTurn
                 for (int i = 0; i < targets.Count; i++)
                 {
                     hashcode += hashcode << 5;
-                    hashcode ^=  targets[i].Key.GetHashCode();
+                    hashcode ^=  (int)targets[i].Key;
                     for (int j = 0; j < targets[i].Value.Count; j++)
                     {
                         hashcode += hashcode << 5;
-                        hashcode ^= targets[i].Value[j].GetHashCode();
+                        hashcode ^= targets[i].Value[j];
                     }
                 }
                 for (int i = 0; i < baseLine.Length; i++)
                 {
                     hashcode += hashcode << 5;
-                    hashcode ^= baseLine[i].GetHashCode();
+                    hashcode ^= baseLine[i];
                 }
                 for (int i = 0; i < numbering.Length; i++)
                 {
                     hashcode += hashcode << 5;
-                    hashcode ^= numbering[i].GetHashCode();
+                    hashcode ^= numbering[i];
                 }
                 for (int i = 0; i < edgePatterns.Count; i++)
                 {
                     hashcode += hashcode << 5;
-                    hashcode ^= edgePatterns[i].GetHashCode();
+                    hashcode ^= (int)edgePatterns[i];
                 }
                 for (int i = 0; i < edgeMasks.Count; i++)
                 {
                     hashcode += hashcode << 5;
-                    hashcode ^= edgeMasks[i].GetHashCode();
+                    hashcode ^= (int)edgeMasks[i];
                 }
                 hashcode += hashcode << 5;
-                hashcode ^= curNumber.GetHashCode();
+                hashcode ^= curNumber;
                 return hashcode;
             }
             public override bool Equals(object obj)
@@ -6201,8 +6259,9 @@ namespace TwistNTurn
                 throw new Exception("Edge already set.");
             edge.State = state;
             bool failed = false;
-            foreach (int cellIndex in edge.Cells)
+            for (var i = 0; i < edge.Cells.Count; i++)
             {
+                int cellIndex = edge.Cells[i];
                 Cell cell = cells[cellIndex];
                 if (state == EdgeState.Filled)
                 {
@@ -6214,8 +6273,9 @@ namespace TwistNTurn
                 }
             }
             // TODO: consider failing immediately for straights on turns and turns on twists.
-            foreach (int intersIndex in edge.Intersections)
+            for (var i = 0; i < edge.Intersections.Length; i++)
             {
+                int intersIndex = edge.Intersections[i];
                 Intersection inters = intersections[intersIndex];
                 if (state == EdgeState.Filled)
                 {
@@ -6232,7 +6292,8 @@ namespace TwistNTurn
                 else
                 {
                     inters.ExcludedCount++;
-                    if ((inters.FilledCount > 0 || inters.Type != IntersType.Unknown) && inters.Edges.Count - inters.ExcludedCount < 2)
+                    if ((inters.FilledCount > 0 || inters.Type != IntersType.Unknown) &&
+                        inters.Edges.Count - inters.ExcludedCount < 2)
                         failed = true;
                 }
             }
@@ -6242,8 +6303,9 @@ namespace TwistNTurn
         private int GetEdgeSet(int intersection, int edgeToIgnore)
         {
             Intersection inter = intersections[intersection];
-            foreach (int edgeIndex in inter.Edges)
+            for (var i = 0; i < inter.Edges.Count; i++)
             {
+                int edgeIndex = inter.Edges[i];
                 if (edgeIndex == edgeToIgnore)
                     continue;
                 Edge e = edges[edgeIndex];
@@ -6290,8 +6352,9 @@ namespace TwistNTurn
         private void RawEdgeUnset(EdgeState state, Edge edge)
         {
             edge.State = EdgeState.Empty;
-            foreach (int cellIndex in edge.Cells)
+            for (var i = 0; i < edge.Cells.Count; i++)
             {
+                int cellIndex = edge.Cells[i];
                 Cell cell = cells[cellIndex];
                 if (state == EdgeState.Filled)
                 {
@@ -6300,8 +6363,9 @@ namespace TwistNTurn
                 else
                     cell.ExcludedCount--;
             }
-            foreach (int intersIndex in edge.Intersections)
+            for (var i = 0; i < edge.Intersections.Length; i++)
             {
+                int intersIndex = edge.Intersections[i];
                 Intersection inters = intersections[intersIndex];
                 if (state == EdgeState.Filled)
                 {
@@ -6369,10 +6433,11 @@ namespace TwistNTurn
                 {
                     edgeSets.Add(new List<int>());
                     int newEdgeSet = edgeSets.Count;
-                    foreach (int otherEdgeIndex in foundEdges)
+                    for (var i = 0; i < foundEdges.Count; i++)
                     {
+                        int otherEdgeIndex = foundEdges[i];
                         int otherIndex = edgeSets[oldEdgeSet - 1].IndexOf(otherEdgeIndex);
-                        edgeSetChanges.Add(new int[] { otherEdgeIndex, newEdgeSet, oldEdgeSet, otherIndex });
+                        edgeSetChanges.Add(new int[] {otherEdgeIndex, newEdgeSet, oldEdgeSet, otherIndex});
                         edgeSets[oldEdgeSet - 1].RemoveAt(otherIndex);
                         Edge e = edges[otherEdgeIndex];
                         e.EdgeSet = newEdgeSet;
@@ -6386,8 +6451,9 @@ namespace TwistNTurn
         private int GetNextEdge(int curInter, int lastEdge)
         {
             Intersection inter = intersections[curInter];
-            foreach (int edgeIndex in inter.Edges)
+            for (var i = 0; i < inter.Edges.Count; i++)
             {
+                int edgeIndex = inter.Edges[i];
                 if (edgeIndex == lastEdge)
                     continue;
                 Edge e = edges[edgeIndex];
@@ -6901,9 +6967,10 @@ namespace TwistNTurn
         public List<int> GetAffectedEdges()
         {
             List<int> res = new List<int>();
-            foreach (int[] change in edgeSetChanges)
+            for (var i = 0; i < edgeSetChanges.Count; i++)
             {
-                // Ignore changes to the number of sets.
+                int[] change = edgeSetChanges[i];
+// Ignore changes to the number of sets.
                 if (change.Length > 1 && change[0] != edge)
                     res.Add(change[0]);
             }
@@ -7094,9 +7161,10 @@ namespace TwistNTurn
         public List<int> GetAffectedEdges()
         {
             List<int> res = new List<int>();
-            foreach (int[] change in colorSetChanges)
+            for (var i = 0; i < colorSetChanges.Count; i++)
             {
-                // Ignore changes to the number of sets.
+                int[] change = colorSetChanges[i];
+// Ignore changes to the number of sets.
                 if (change.Length > 1)
                     res.Add(change[0]);
             }
@@ -7219,8 +7287,9 @@ namespace TwistNTurn
         public List<int> GetAffectedCells()
         {
             List<int> res = new List<int>();
-            foreach (int[] change in colorSetChanges)
+            for (var i = 0; i < colorSetChanges.Count; i++)
             {
+                int[] change = colorSetChanges[i];
                 // Ignore changes to the number of sets.
                 if (change.Length > 1)
                     res.Add(change[0]);
