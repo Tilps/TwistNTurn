@@ -5281,11 +5281,11 @@ namespace TwistNTurn
 
             public override int GetHashCode()
             {
-                int hashcode = curNumber.GetHashCode();
+                int hashcode = curNumber;
                 for (int i = 0; i < success.Length; i++)
                 {
                     hashcode += hashcode << 5;
-                    hashcode ^= success[i].GetHashCode();
+                    hashcode ^= (int)success[i];
                 }
                 return hashcode;
             }
@@ -7054,7 +7054,7 @@ namespace TwistNTurn
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(mesh.GetHashCode(), edge.GetHashCode(), newState.GetHashCode());
+            return HashCode.Combine(mesh.GetHashCode(), edge, (int)newState);
         }
 
         public override bool Equals(object obj)
@@ -7136,7 +7136,7 @@ namespace TwistNTurn
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(mesh.GetHashCode(), edge.GetHashCode());
+            return HashCode.Combine(mesh.GetHashCode(), edge);
         }
 
         public override bool Equals(object obj)
@@ -7257,7 +7257,7 @@ namespace TwistNTurn
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(mesh.GetHashCode(), edge1.GetHashCode(), edge2.GetHashCode(), same.GetHashCode());
+            return HashCode.Combine(mesh.GetHashCode(), edge1, edge2, same ? 1 : 0);
         }
 
         public override bool Equals(object obj)
@@ -7383,7 +7383,7 @@ namespace TwistNTurn
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(mesh.GetHashCode(), cell1.GetHashCode(), cell1.GetHashCode(), same.GetHashCode());
+            return HashCode.Combine(mesh.GetHashCode(), cell1, cell2, same ? 1 : 0);
         }
 
         public override bool Equals(object obj)
@@ -7466,7 +7466,7 @@ namespace TwistNTurn
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(mesh.GetHashCode(), cell1.GetHashCode());
+            return HashCode.Combine(mesh.GetHashCode(), cell1);
         }
 
         public override bool Equals(object obj)
@@ -7588,7 +7588,7 @@ namespace TwistNTurn
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(mesh.GetHashCode(), edge1.GetHashCode(), edge2.GetHashCode(), ((int)state).GetHashCode());
+            return HashCode.Combine(mesh.GetHashCode(), edge1, edge2, (int)state);
         }
 
         public override bool Equals(object obj)
