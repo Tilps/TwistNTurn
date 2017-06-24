@@ -58,19 +58,19 @@ namespace TwistNTurn
     {
         public Edge()
         {
-            Cells = new List<int>();
+            Cells = new QuickList();
             Intersections = new int[2];
         }
         public Edge(Edge other)
         {
             State = other.State;
             Intersections = (int[])other.Intersections.Clone();
-            Cells = new List<int>(other.Cells);
+            Cells = new QuickList(other.Cells);
             Color = other.Color;
             EdgeSet = other.EdgeSet;
         }
 
-        public List<int> Cells;
+        public QuickList Cells;
         public int[] Intersections;
         public EdgeState State;
         public int Color;
@@ -86,16 +86,16 @@ namespace TwistNTurn
     {
         public Intersection()
         {
-            Edges = new List<int>();
-            Opposite = new List<int>();
+            Edges = new QuickList();
+            Opposite = new QuickList();
             Cells = new List<int>();
         }
         public Intersection(Intersection other)
         {
             FilledCount = other.FilledCount;
             ExcludedCount = other.ExcludedCount;
-            Edges = new List<int>(other.Edges);
-            Opposite = new List<int>(other.Opposite);
+            Edges = new QuickList(other.Edges);
+            Opposite = new QuickList(other.Opposite);
             Cells = new List<int>(other.Cells);
             Type = other.Type;
             X = other.X;
@@ -104,8 +104,8 @@ namespace TwistNTurn
             // Can't clone edge set entries across, have to 'fixup' them later.
             //EdgeSetEntry = other.EdgeSetEntry;
         }
-        public List<int> Edges;
-        public List<int> Opposite;
+        public QuickList Edges;
+        public QuickList Opposite;
         public List<int> Cells;
         public int FilledCount;
         public int ExcludedCount;
@@ -322,8 +322,11 @@ namespace TwistNTurn
         public Mesh(Mesh other)
         {
             edges = new List<Edge>();
-            foreach (Edge edge in other.edges)
+            for (var index = 0; index < other.edges.Count; index++)
+            {
+                Edge edge = other.edges[index];
                 edges.Add(edge.Clone());
+            }
             intersections = new List<Intersection>();
             foreach (Intersection inters in other.intersections)
                 intersections.Add(inters.Clone());
@@ -409,8 +412,9 @@ namespace TwistNTurn
                                 newEdge.Cells.Add(j - 1 + i * height);
                             if (j < height)
                                 newEdge.Cells.Add(j + i * height);
-                            foreach (int cellIndex in newEdge.Cells)
+                            for (var index1 = 0; index1 < newEdge.Cells.Count; index1++)
                             {
+                                int cellIndex = newEdge.Cells[index1];
                                 cells[cellIndex].Edges.Add(index);
                             }
                         }
@@ -429,8 +433,9 @@ namespace TwistNTurn
                                 newEdge.Cells.Add(j + (i - 1) * height);
                             if (i < width)
                                 newEdge.Cells.Add(j + i * height);
-                            foreach (int cellIndex in newEdge.Cells)
+                            for (var index1 = 0; index1 < newEdge.Cells.Count; index1++)
                             {
+                                int cellIndex = newEdge.Cells[index1];
                                 cells[cellIndex].Edges.Add(index);
                             }
                         }
@@ -707,8 +712,9 @@ namespace TwistNTurn
         {
             List<List<int>> result = new List<List<int>>();
             Intersection inters = intersections[i];
-            foreach (int eIndex in inters.Edges)
+            for (var index = 0; index < inters.Edges.Count; index++)
             {
+                int eIndex = inters.Edges[index];
                 List<int> corners = new List<int>();
                 int last = i;
                 int next = GetOtherInters(eIndex, last);
@@ -728,13 +734,15 @@ namespace TwistNTurn
                     if (lastAngle > Math.PI)
                         lastAngle -= Math.PI * 2;
                     double nextAngle = lastAngle + Math.PI * 2;
-                    foreach (int edgeIndex in nextInter.Edges)
+                    for (var index1 = 0; index1 < nextInter.Edges.Count; index1++)
                     {
+                        int edgeIndex = nextInter.Edges[index1];
                         int possibleNext = GetOtherInters(edgeIndex, last);
                         if (possibleNext == realLast)
                             continue;
                         Intersection possibleNextInter = intersections[possibleNext];
-                        double possibleNextAngle = Math.Atan2(possibleNextInter.Y - lastInter.Y, possibleNextInter.X - lastInter.X);
+                        double possibleNextAngle =
+                            Math.Atan2(possibleNextInter.Y - lastInter.Y, possibleNextInter.X - lastInter.X);
                         if (possibleNextAngle > lastAngle && possibleNextAngle < nextAngle)
                         {
                             nextAngle = possibleNextAngle;
@@ -779,7 +787,8 @@ namespace TwistNTurn
                         float dx2 = endInter.X - midInter.X;
                         double cross = dy1 * dx2 - dx1 * dy2;
                         double dot = dx1 * dx2 + dy1 * dy2;
-                        double angle = Math.Acos(dot / Math.Sqrt(dx1 * dx1 + dy1 * dy1) / Math.Sqrt(dx2 * dx2 + dy2 * dy2));
+                        double angle = Math.Acos(dot / Math.Sqrt(dx1 * dx1 + dy1 * dy1) /
+                                                 Math.Sqrt(dx2 * dx2 + dy2 * dy2));
                         if (cross < 0)
                             angle = -angle;
 
@@ -1443,14 +1452,16 @@ namespace TwistNTurn
         private bool TryPop(int edgeToPop, Dictionary<int, bool> candidateCheck)
         {
             Edge eToPop = edges[edgeToPop];
-            foreach (int c in eToPop.Cells)
+            for (var i = 0; i < eToPop.Cells.Count; i++)
             {
+                int c = eToPop.Cells[i];
                 Cell cell = cells[c];
                 if (!IsPopable(cell, candidateCheck))
                     continue;
                 int oldCount = cell.FilledCount;
-                foreach (int edge in cell.Edges)
+                for (var index = 0; index < cell.Edges.Count; index++)
                 {
+                    int edge = cell.Edges[index];
                     if (edges[edge].State == EdgeState.Filled)
                     {
                         Perform(new UnsetAction(this, edge), new List<IAction>(), 0, null);
@@ -1468,8 +1479,9 @@ namespace TwistNTurn
                             Intersection inter = intersections[interIndex];
                             if (inter.FilledCount == 2)
                             {
-                                foreach (int edgeIndex in inter.Edges)
+                                for (var index1 = 0; index1 < inter.Edges.Count; index1++)
                                 {
+                                    int edgeIndex = inter.Edges[index1];
                                     Edge otherEdge = edges[edgeIndex];
                                     if (otherEdge.State == EdgeState.Empty)
                                     {
@@ -1500,8 +1512,9 @@ namespace TwistNTurn
 
         private bool AllCandidates(Cell cell, Dictionary<int, bool> candidateCheck)
         {
-            foreach (int edge in cell.Edges)
+            for (var index = 0; index < cell.Edges.Count; index++)
             {
+                int edge = cell.Edges[index];
                 if (edges[edge].State == EdgeState.Filled && !candidateCheck.ContainsKey(edge))
                     return false;
             }
@@ -1527,8 +1540,9 @@ namespace TwistNTurn
                 foreach (int interIndex in e.Intersections)
                 {
                     Intersection inter = intersections[interIndex];
-                    foreach (int edgeIndex in inter.Edges)
+                    for (var i = 0; i < inter.Edges.Count; i++)
                     {
+                        int edgeIndex = inter.Edges[i];
                         if (edges[edgeIndex].State != EdgeState.Empty)
                         {
                             found = true;
@@ -1596,8 +1610,9 @@ namespace TwistNTurn
             foreach (int interIndex in cell.Intersections)
             {
                 Intersection inter = intersections[interIndex];
-                foreach (int edge in inter.Edges)
+                for (var index = 0; index < inter.Edges.Count; index++)
                 {
+                    int edge = inter.Edges[index];
                     if (boringEdges[edge])
                         return true;
                 }
@@ -1626,13 +1641,15 @@ namespace TwistNTurn
                 if (inter.FilledCount != 2)
                     continue;
                 bool found = false;
-                foreach (int edgeIndex in inter.Edges)
+                for (var i = 0; i < inter.Edges.Count; i++)
                 {
+                    int edgeIndex = inter.Edges[i];
                     Edge edge = edges[edgeIndex];
                     if (edge.State == EdgeState.Filled)
                     {
-                        foreach (int cellIndex in edge.Cells)
+                        for (var index = 0; index < edge.Cells.Count; index++)
                         {
+                            int cellIndex = edge.Cells[index];
                             if (cells[cellIndex] == cell)
                                 found = true;
                         }
@@ -1671,8 +1688,9 @@ namespace TwistNTurn
             if (!IsExpandable(cell))
                 return 0;
             int oldCount = cell.FilledCount;
-            foreach (int edge in cell.Edges)
+            for (var index = 0; index < cell.Edges.Count; index++)
             {
+                int edge = cell.Edges[index];
                 if (edges[edge].State == EdgeState.Filled)
                 {
                     Perform(new UnsetAction(this, edge), new List<IAction>(), 0, null);
@@ -1690,8 +1708,9 @@ namespace TwistNTurn
                         Intersection inter = intersections[interIndex];
                         if (inter.FilledCount == 2)
                         {
-                            foreach (int edgeIndex in inter.Edges)
+                            for (var i = 0; i < inter.Edges.Count; i++)
                             {
+                                int edgeIndex = inter.Edges[i];
                                 Edge otherEdge = edges[edgeIndex];
                                 if (otherEdge.State == EdgeState.Empty)
                                 {
@@ -3124,20 +3143,23 @@ namespace TwistNTurn
 
             // This gets the same edge upto 4 times, so uniquification is probably useful by the caller (faster then us doing it.)
             Edge e = edges[edge];
-            foreach (int i in intersections[e.Intersections[0]].Edges)
+            for (var index = 0; index < intersections[e.Intersections[0]].Edges.Count; index++)
             {
+                int i = intersections[e.Intersections[0]].Edges[index];
                 if (edges[i].State == EdgeState.Empty && GetEdgeDistance(i, locusAction) <= maxDist)
                     smarts.Add(new SetAction(this, i, EdgeState.Filled));
             }
-            foreach (int i in intersections[e.Intersections[1]].Edges)
+            for (var index = 0; index < intersections[e.Intersections[1]].Edges.Count; index++)
             {
+                int i = intersections[e.Intersections[1]].Edges[index];
                 if (edges[i].State == EdgeState.Empty && GetEdgeDistance(i, locusAction) <= maxDist)
                     smarts.Add(new SetAction(this, i, EdgeState.Filled));
             }
             if (useCellColoring && useCellColoringTrials)
             {
-                foreach (int i in e.Cells)
+                for (var index = 0; index < e.Cells.Count; index++)
                 {
+                    int i = e.Cells[index];
                     if (Math.Abs(cells[i].Color) != 1 && GetCellDistance(i, locusAction) <= maxDist)
                         smarts.Add(new CellColorJoinAction(this, i, -1, true));
                 }
@@ -4796,7 +4818,7 @@ namespace TwistNTurn
 
         private int GetAdjacentCell(int cell, int byEdge)
         {
-            List<int> candidates = edges[byEdge].Cells;
+            QuickList candidates = edges[byEdge].Cells;
             for (int i = 0; i < candidates.Count; i++)
             {
                 if (candidates[i] != cell)
@@ -4927,7 +4949,7 @@ namespace TwistNTurn
                     int cell3Color = 0;
                     int cell4 = -1;
                     int cell4Color = 1;
-                    List<int> edge2Cells = edge2.Cells;
+                    QuickList edge2Cells = edge2.Cells;
                     int jMax = edge2Cells.Count;
                     for (int j = 0; j < jMax; j++)
                     {
@@ -6440,8 +6462,9 @@ namespace TwistNTurn
                     if (!foundInters.ContainsKey(curInters))
                     {
                         Intersection inters = intersections[curInters];
-                        foreach (int nextEdge in inters.Edges)
+                        for (var i = 0; i < inters.Edges.Count; i++)
                         {
+                            int nextEdge = inters.Edges[i];
                             if (nextEdge != curEdge)
                             {
                                 Edge e = edges[nextEdge];
@@ -7865,6 +7888,16 @@ namespace TwistNTurn
         {
             Buffer = new int[length];
         }
+
+        public QuickList(QuickList other)
+        {
+            Buffer = new int[other.Buffer.Length];
+            for (int i = 0; i < other.Count; i++)
+            {
+                Buffer[i] = other.Buffer[i];
+            }
+            Count = other.Count;
+        }
         public int Count;
         public void Add(int value)
         {
@@ -7880,6 +7913,31 @@ namespace TwistNTurn
         public void Clear()
         {
             Count = 0;
+        }
+
+        public int this[int i]
+        {
+            get { return Buffer[i]; }
+            set { Buffer[i] = value; }
+        }
+
+        public bool Contains(int value)
+        {
+            for (int i = 0; i < Count; i++)
+            {
+                if (Buffer[i] == value) return true;
+            }
+            return false;
+        }
+
+        public int IndexOf(int value)
+        {
+            for (int i = 0; i < Count; i++)
+            {
+                if (Buffer[i] == value) return i;
+            }
+            return -1;
+
         }
 
         public int[] Buffer;
