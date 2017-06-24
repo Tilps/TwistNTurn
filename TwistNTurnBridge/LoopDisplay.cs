@@ -398,8 +398,9 @@ namespace TwistNTurnBridge
                 {
                     float cx = 0.0F;
                     float cy = 0.0F;
-                    foreach (int inters in Mesh.Cells[i].Intersections)
+                    for (int j=0; j < Mesh.Cells[i].Intersections.Count; j++)
                     {
+                        int inters = Mesh.Cells[i].Intersections[j];
                         cx += Mesh.Intersections[inters].X;
                         cy += Mesh.Intersections[inters].Y;
                     }

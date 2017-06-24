@@ -88,7 +88,7 @@ namespace TwistNTurn
         {
             Edges = new QuickList();
             Opposite = new QuickList();
-            Cells = new List<int>();
+            Cells = new QuickList();
         }
         public Intersection(Intersection other)
         {
@@ -96,7 +96,7 @@ namespace TwistNTurn
             ExcludedCount = other.ExcludedCount;
             Edges = new QuickList(other.Edges);
             Opposite = new QuickList(other.Opposite);
-            Cells = new List<int>(other.Cells);
+            Cells = new QuickList(other.Cells);
             Type = other.Type;
             X = other.X;
             Y = other.Y;
@@ -106,7 +106,7 @@ namespace TwistNTurn
         }
         public QuickList Edges;
         public QuickList Opposite;
-        public List<int> Cells;
+        public QuickList Cells;
         public int FilledCount;
         public int ExcludedCount;
         public float X;
@@ -125,19 +125,19 @@ namespace TwistNTurn
     {
         public Cell()
         {
-            Edges = new List<int>();
-            Intersections = new List<int>();
+            Edges = new QuickList();
+            Intersections = new QuickList();
         }
         public Cell(Cell other)
         {
-            Edges = new List<int>(other.Edges);
-            Intersections = new List<int>(other.Intersections);
+            Edges = new QuickList(other.Edges);
+            Intersections = new QuickList(other.Intersections);
             Color = other.Color;
             FilledCount = other.FilledCount;
             ExcludedCount = other.ExcludedCount;
         }
-        public List<int> Edges;
-        public List<int> Intersections;
+        public QuickList Edges;
+        public QuickList Intersections;
         public int FilledCount;
         public int ExcludedCount;
         public int Color;
@@ -608,10 +608,10 @@ namespace TwistNTurn
                         int cellIndex = cells.Count;
                         Cell cell = new Cell();
                         cells.Add(cell);
-                        cell.Intersections.AddRange(cellCorners);
                         for (int j = 0; j < cellCorners.Count; j++)
                         {
                             int cellCorner = cellCorners[j];
+                            cell.Intersections.Add(cellCorner);
                             Intersection inters = intersections[cellCorner];
                             inters.Cells.Add(cellIndex);
                             int eIndex = GetEdgeJoining(cellCorner, cellCorners[(j + 1) % cellCorners.Count]);
@@ -1607,8 +1607,9 @@ namespace TwistNTurn
         {
             if (boringEdges == null)
                 RateBoringness();
-            foreach (int interIndex in cell.Intersections)
+            for (var i = 0; i < cell.Intersections.Count; i++)
             {
+                int interIndex = cell.Intersections[i];
                 Intersection inter = intersections[interIndex];
                 for (var index = 0; index < inter.Edges.Count; index++)
                 {
@@ -1635,8 +1636,9 @@ namespace TwistNTurn
 
         private bool GlancingTouch(Cell cell)
         {
-            foreach (int interIndex in cell.Intersections)
+            for (var index1 = 0; index1 < cell.Intersections.Count; index1++)
             {
+                int interIndex = cell.Intersections[index1];
                 Intersection inter = intersections[interIndex];
                 if (inter.FilledCount != 2)
                     continue;
@@ -3166,15 +3168,17 @@ namespace TwistNTurn
             }
             if (followCells)
             {
-                foreach (int i in cells[e.Cells[0]].Edges)
+                for (var index = 0; index < cells[e.Cells[0]].Edges.Count; index++)
                 {
+                    int i = cells[e.Cells[0]].Edges[index];
                     if (edges[i].State == EdgeState.Empty && GetEdgeDistance(i, locusAction) <= maxDist)
                         smarts.Add(new SetAction(this, i, EdgeState.Filled));
                 }
                 if (e.Cells.Count > 1)
                 {
-                    foreach (int i in cells[e.Cells[1]].Edges)
+                    for (var index = 0; index < cells[e.Cells[1]].Edges.Count; index++)
                     {
+                        int i = cells[e.Cells[1]].Edges[index];
                         if (edges[i].State == EdgeState.Empty && GetEdgeDistance(i, locusAction) <= maxDist)
                             smarts.Add(new SetAction(this, i, EdgeState.Filled));
                     }
@@ -3184,8 +3188,8 @@ namespace TwistNTurn
 
         private int GetCellDistance(int cell, IAction locusAction)
         {
-            List<int> locusEdges = GetLocusEdges(locusAction);
-            List<int> cellEdges = cells[cell].Edges;
+            QuickList locusEdges = GetLocusEdges(locusAction);
+            QuickList cellEdges = cells[cell].Edges;
             int minDist = int.MaxValue;
             for (int i = 0; i < locusEdges.Count; i++)
             {
@@ -3199,9 +3203,9 @@ namespace TwistNTurn
             return minDist;
         }
 
-        private List<int> GetLocusEdges(IAction locusAction)
+        private QuickList GetLocusEdges(IAction locusAction)
         {
-            List<int> result = new List<int>();
+            QuickList result = new QuickList();
             if (locusAction is SetAction)
             {
                 SetAction setAction = (SetAction)locusAction;
@@ -3218,9 +3222,9 @@ namespace TwistNTurn
             else if (locusAction is CellColorJoinAction)
             {
                 CellColorJoinAction ccjAction = (CellColorJoinAction)locusAction;
-                result.AddRange(cells[ccjAction.Cell1].Edges);
+                result.AddList(cells[ccjAction.Cell1].Edges);
                 if (ccjAction.Cell2 != -1)
-                    result.AddRange(cells[ccjAction.Cell2].Edges);
+                    result.AddList(cells[ccjAction.Cell2].Edges);
                 return result;
             }
             throw new NotSupportedException("GetLocusEdges doesn't support the passed action type.");
@@ -3228,7 +3232,7 @@ namespace TwistNTurn
 
         private int GetEdgeDistance(int edge, IAction locusAction)
         {
-            List<int> locusEdges = GetLocusEdges(locusAction);
+            QuickList locusEdges = GetLocusEdges(locusAction);
             int minDist = int.MaxValue;
             for (int i = 0; i < locusEdges.Count; i++)
             {
@@ -7897,6 +7901,15 @@ namespace TwistNTurn
                 Buffer[i] = other.Buffer[i];
             }
             Count = other.Count;
+        }
+
+        public void AddList(QuickList other)
+        {
+            // TODO known size resize for performance?
+            for (int i = 0; i < other.Count; i++)
+            {
+                Add(other.Buffer[i]);
+            }
         }
         public int Count;
         public void Add(int value)
