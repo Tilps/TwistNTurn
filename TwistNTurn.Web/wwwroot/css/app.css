@@ -128,44 +128,68 @@ body, html {
 }
 
 .action-buttons-group .btn {
+    min-height: 42px;
     padding: 0.45rem 0.75rem;
-    font-size: 0.875rem;
+    font-size: 0.95rem;
     font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+}
+
+.undo-btn, .redo-btn {
+    min-width: 44px;
+}
+
+.undo-btn .btn-icon, .redo-btn .btn-icon {
+    font-size: 1.25rem;
+    line-height: 1;
 }
 
 .action-meta-group {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
+    flex-shrink: 0;
 }
 
-.timer-box {
+.action-meta-group .timer-box {
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background-color: var(--btn-secondary-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
     padding: 0.4rem 0.75rem;
-    font-size: 0.95rem;
+    font-size: 1rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     color: var(--text-primary);
     min-width: 60px;
     text-align: center;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .desktop-utility-group {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.35rem;
+}
+
+.mobile-utility-group {
+    display: none;
+}
+
+.mobile-close-btn {
+    display: none;
 }
 
 .menu-toggle-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    padding: 0;
-    font-size: 1.15rem;
+    display: none !important;
 }
 
 .header-collapsible {
@@ -629,10 +653,45 @@ body, html {
     }
 }
 
-/* Narrow / Mobile Layout (<= 860px): Collapsible options modal overlay */
+/* Compact / Phone Layout (<= 860px): Options collapsed; SHOW gear button */
 @media (max-width: 860px) {
     .game-header {
-        padding: 0.4rem 0.75rem;
+        padding: 0.45rem 0.65rem;
+        gap: 0.45rem;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .action-bar {
+        width: 100%;
+        justify-content: space-between;
+        gap: 0.35rem;
+    }
+
+    .action-buttons-group {
+        gap: 0.3rem;
+        flex-shrink: 1;
+        min-width: 0;
+    }
+
+    .action-buttons-group .btn {
+        min-height: 42px;
+        padding: 0.4rem 0.65rem;
+        font-size: 0.9rem;
+    }
+
+    .action-meta-group {
+        gap: 0.3rem;
+        flex-shrink: 0;
+    }
+
+    .action-meta-group .timer-box {
+        min-height: 42px;
+        padding: 0.4rem 0.55rem;
+        font-size: 0.95rem;
+        min-width: 3.6rem;
+        white-space: nowrap;
+        flex-shrink: 0;
     }
 
     .desktop-utility-group {
@@ -640,64 +699,192 @@ body, html {
     }
 
     .menu-toggle-btn {
-        display: flex !important;
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        min-width: 42px;
+        min-height: 42px;
+        padding: 0.4rem 0.65rem;
+        font-size: 1.15rem;
+        border-radius: var(--radius);
+        flex-shrink: 0;
     }
 
+    .menu-toggle-btn.active {
+        background-color: var(--primary);
+        color: #ffffff;
+        border-color: var(--primary);
+    }
+
+    /* Collapsible Options Panel on mobile */
     .header-collapsible {
         display: none;
-        position: fixed;
-        inset: 0;
-        background-color: var(--bg-surface);
-        padding: 1.5rem;
         flex-direction: column;
-        align-items: stretch;
-        justify-content: flex-start;
-        gap: 1.25rem;
-        z-index: 1000;
+        gap: 0.75rem;
+        padding: 0.75rem 0.25rem 0.5rem;
+        border-top: 1px solid var(--border-color);
+        width: 100%;
+        max-height: 65vh;
         overflow-y: auto;
     }
 
     .header-collapsible.open {
-        display: flex !important;
-        animation: menu-slide 0.2s ease-out;
+        display: flex;
+        animation: menu-slide-down 0.15s ease-out;
     }
 
-    @keyframes menu-slide {
-        from { transform: translateY(-10px); opacity: 0; }
-        to { transform: translateY(0); opacity: 1; }
+    .header-collapsible .brand {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding-bottom: 0.25rem;
+        border-bottom: 1px solid var(--border-color);
     }
 
     .mobile-close-btn {
-        display: block !important;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--btn-secondary-bg);
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        width: 2rem;
+        height: 2rem;
+        border-radius: var(--radius);
+        cursor: pointer;
     }
 
-    .controls-group {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.85rem;
-    }
-
-    .control-item {
-        justify-content: space-between;
-    }
-
-    .select-input, .text-input {
-        flex: 1;
-        max-width: 60%;
+    .header-collapsible .controls-group {
+        width: 100%;
+        justify-content: flex-start;
+        gap: 0.5rem;
     }
 
     .mobile-utility-group {
         display: flex !important;
-        flex-direction: column;
+        align-items: center;
         gap: 0.5rem;
-        margin-top: 1rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--border-color);
+        flex-wrap: wrap;
+        padding-top: 0.5rem;
+        border-top: 1px dashed var(--border-color);
+        width: 100%;
     }
 
     .game-footer {
+        display: none !important;
+    }
+}
+
+/* Mobile & Phablet screens (<= 700px): Contract Undo/Redo to icon-only early so timer and gear icon never clip */
+@media (max-width: 700px) {
+    .undo-btn .btn-text,
+    .redo-btn .btn-text {
         display: none;
     }
+
+    .undo-btn, .redo-btn {
+        min-width: 42px;
+        padding: 0.4rem 0.5rem;
+    }
+
+    .action-buttons-group .btn {
+        min-height: 42px;
+        padding: 0.4rem 0.55rem;
+        font-size: 0.88rem;
+    }
+}
+
+/* Standard phone screens (<= 440px): Compact spacing and padding to fit comfortably on 360-440px */
+@media (max-width: 440px) {
+    .game-header {
+        padding: 0.35rem 0.45rem;
+    }
+
+    .action-bar {
+        gap: 0.22rem;
+    }
+
+    .action-buttons-group {
+        gap: 0.2rem;
+    }
+
+    .action-buttons-group .btn {
+        min-height: 40px;
+        padding: 0.35rem 0.42rem;
+        font-size: 0.85rem;
+    }
+
+    .undo-btn, .redo-btn {
+        min-width: 38px;
+    }
+
+    .undo-btn .btn-icon, .redo-btn .btn-icon {
+        font-size: 1.2rem;
+    }
+
+    .action-meta-group {
+        gap: 0.2rem;
+    }
+
+    .action-meta-group .timer-box {
+        min-height: 40px;
+        padding: 0.35rem 0.42rem;
+        font-size: 0.875rem;
+        min-width: 3.2rem;
+    }
+
+    .menu-toggle-btn {
+        min-width: 38px;
+        min-height: 40px;
+        padding: 0.35rem 0.45rem;
+        font-size: 1.05rem;
+    }
+}
+
+/* Ultra-narrow phone screens (<= 360px) */
+@media (max-width: 360px) {
+    .game-header {
+        padding: 0.25rem 0.25rem;
+    }
+
+    .action-buttons-group {
+        gap: 0.15rem;
+    }
+
+    .action-buttons-group .btn {
+        min-height: 38px;
+        padding: 0.3rem 0.32rem;
+        font-size: 0.8rem;
+    }
+
+    .undo-btn, .redo-btn {
+        min-width: 34px;
+    }
+
+    .action-meta-group {
+        gap: 0.15rem;
+    }
+
+    .action-meta-group .timer-box {
+        min-height: 38px;
+        padding: 0.3rem 0.3rem;
+        font-size: 0.8rem;
+        min-width: 2.8rem;
+    }
+
+    .menu-toggle-btn {
+        min-width: 34px;
+        min-height: 38px;
+        padding: 0.3rem 0.3rem;
+        font-size: 1rem;
+    }
+}
+
+@keyframes menu-slide-down {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 /* PWA update banner */
