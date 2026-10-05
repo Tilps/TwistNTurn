@@ -30,7 +30,7 @@ namespace TwistNTurn
         }
         class UndoNode
         {
-            public UndoNode(IAction action, UndoNode parent, ref int curIndex)
+            public UndoNode(IAction? action, UndoNode? parent, ref int curIndex)
             {
                 Index = curIndex;
                 curIndex++;
@@ -46,11 +46,11 @@ namespace TwistNTurn
                 CurrentlyUndone = false;
             }
             public int Index;
-            public IAction Action;
+            public IAction? Action;
             public bool CurrentlyUndone;
-            public UndoNode Parent;
+            public UndoNode? Parent;
             public List<UndoNode> Children;
-            public UndoNode LastDoneChild;
+            public UndoNode? LastDoneChild;
         }
 
         int curIndex = 0;
@@ -64,7 +64,7 @@ namespace TwistNTurn
                 return false;
             foreach (UndoNode child in current.Children)
             {
-                if (child.Action.Equals(action))
+                if (child.Action != null && child.Action.Equals(action))
                 {
                     current.LastDoneChild = child;
                     return Redo();
@@ -84,7 +84,7 @@ namespace TwistNTurn
             return true;
         }
 
-        public event EventHandler CanUndoRedoMaybeChanged;
+        public event EventHandler? CanUndoRedoMaybeChanged;
 
         private void OnCanUndoRedoMaybeChanged(EventArgs e)
         {
@@ -102,11 +102,31 @@ namespace TwistNTurn
 
         public bool Undo()
         {
-            if (current.Action == null)
+            if (current.Action == null || current.Parent == null)
                 return false;
             current.Action.Unperform();
             current.CurrentlyUndone = true;
             current = current.Parent;
+            OnCanUndoRedoMaybeChanged(EventArgs.Empty);
+            return true;
+        }
+
+        public bool UndoAndForget()
+        {
+            if (current.Action == null || current.Parent == null)
+                return false;
+            var toRemove = current;
+            current.Action.Unperform();
+            current = current.Parent;
+            current.Children.Remove(toRemove);
+            if (current.LastDoneChild == toRemove)
+            {
+                current.LastDoneChild = current.Children.Count > 0 ? current.Children[current.Children.Count - 1] : null;
+            }
+            if (marked == toRemove)
+            {
+                marked = current;
+            }
             OnCanUndoRedoMaybeChanged(EventArgs.Empty);
             return true;
         }
@@ -121,8 +141,8 @@ namespace TwistNTurn
 
         public bool Redo()
         {
-            UndoNode next = current.LastDoneChild;
-            if (next == null)
+            UndoNode? next = current.LastDoneChild;
+            if (next == null || next.Action == null)
                 return false;
             bool res = next.Action.Perform();
             if (!res)
@@ -144,7 +164,7 @@ namespace TwistNTurn
                 return false;
             foreach (UndoNode child in current.Children)
             {
-                if (child.Action.Equals(action))
+                if (child.Action != null && child.Action.Equals(action))
                 {
                     current.LastDoneChild = child;
                     return Redo();
@@ -159,40 +179,46 @@ namespace TwistNTurn
             {
                 List<IAction> res = new List<IAction>();
                 foreach (UndoNode child in current.Children)
-                    res.Add(child.Action);
+                {
+                    if (child.Action != null)
+                        res.Add(child.Action);
+                }
                 return res;
             }
         }
 
-        internal void Mark()
+        public void Mark()
         {
             marked = current;
         }
-        UndoNode marked = null;
+        UndoNode? marked = null;
 
-        internal void RevertToMark()
+        public bool IsMarked => marked != null;
+        public bool CanRevert => marked != null && current != marked;
+
+        public void RevertToMark()
         {
             while (current != marked && CanUndo)
                 Undo();
         }
 
-        internal object ClearMark()
+        public object? ClearMark()
         {
-            UndoNode oldMarked = marked;
+            UndoNode? oldMarked = marked;
             marked = null;
             return oldMarked;
         }
 
         bool markNext = false;
-        internal object MarkNext()
+        public object? MarkNext()
         {
             markNext = true;
             return marked;
         }
 
-        internal void SetMarkedDirect(object prevMarkPos)
+        public void SetMarkedDirect(object? prevMarkPos)
         {
-            marked = (UndoNode)prevMarkPos;
+            marked = prevMarkPos as UndoNode;
         }
     }
 }

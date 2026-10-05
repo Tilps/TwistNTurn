@@ -1,9 +1,13 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.26430.13
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TwistNTurnBridge", "TwistNTurnBridge\TwistNTurnBridge.csproj", "{27F790D4-23CD-487C-B85B-02E65AB32079}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TwistNTurn.Core", "TwistNTurn.Core\TwistNTurn.Core.csproj", "{74163E56-4B81-4C57-8ECB-B368A62BD815}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TwistNTurn.Web", "TwistNTurn.Web\TwistNTurn.Web.csproj", "{1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TwistNTurn.Tests", "TwistNTurn.Tests\TwistNTurn.Tests.csproj", "{88B2C3D4-E5F6-7081-92A3-B4C5D6E7F809}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -11,12 +15,21 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{27F790D4-23CD-487C-B85B-02E65AB32079}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{27F790D4-23CD-487C-B85B-02E65AB32079}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{27F790D4-23CD-487C-B85B-02E65AB32079}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{27F790D4-23CD-487C-B85B-02E65AB32079}.Release|Any CPU.Build.0 = Release|Any CPU
+		{74163E56-4B81-4C57-8ECB-B368A62BD815}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{74163E56-4B81-4C57-8ECB-B368A62BD815}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{74163E56-4B81-4C57-8ECB-B368A62BD815}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{74163E56-4B81-4C57-8ECB-B368A62BD815}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{88B2C3D4-E5F6-7081-92A3-B4C5D6E7F809}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{88B2C3D4-E5F6-7081-92A3-B4C5D6E7F809}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{88B2C3D4-E5F6-7081-92A3-B4C5D6E7F809}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{88B2C3D4-E5F6-7081-92A3-B4C5D6E7F809}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 EndGlobal
+
