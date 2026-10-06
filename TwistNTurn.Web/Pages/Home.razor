@@ -148,16 +148,16 @@
                 <div class="spinner"></div>
                 <div class="spinner-content">
                     <div class="spinner-text">
-                        @if (Game.TotalIntersections > 0)
+                        @if (Game.PrunedProgress > 0 && Game.TotalIntersections > 0)
                         {
-                            <span>Generating puzzle... (@Game.PrunedProgress / @Game.TotalIntersections pearls checked)</span>
+                            <span>Pruning pearls... (@Game.PrunedProgress / @Game.TotalIntersections checked)</span>
                         }
                         else
                         {
-                            <span>Generating puzzle...</span>
+                            <span>Generating initial loop...</span>
                         }
                     </div>
-                    @if (Game.TotalIntersections > 0)
+                    @if (Game.PrunedProgress > 0 && Game.TotalIntersections > 0)
                     {
                         <div class="progress-bar-container">
                             <div class="progress-bar-fill" style="width: @(Math.Clamp((double)Game.PrunedProgress / Game.TotalIntersections * 100, 0, 100).ToString("F0"))%"></div>

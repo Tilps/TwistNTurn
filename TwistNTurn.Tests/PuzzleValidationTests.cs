@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TwistNTurn;
 
@@ -150,5 +151,34 @@ namespace TwistNTurn.Tests
             Assert.IsFalse(PuzzleHelper.CheckIsSolved(mesh),
                 "Two disconnected loops should NOT be considered solved");
         }
+
+        [TestMethod]
+        public async Task GenerateAsync_CancelledImmediately_AbortsCleanly()
+        {
+            var mesh = PuzzleHelper.MakeMesh(3, 3, MeshType.Square, 0);
+            using var cts = new System.Threading.CancellationTokenSource();
+            cts.Cancel();
+            await mesh.GenerateAsync(cancellationToken: cts.Token);
+            Assert.IsTrue(cts.IsCancellationRequested);
+        }
+
+        [TestMethod]
+        public async Task GenerateAsync_AbortedViaAbortPrune_AbortsCleanly()
+        {
+            var mesh = PuzzleHelper.MakeMesh(6, 6, MeshType.Square, 0);
+            var task = mesh.GenerateAsync();
+            mesh.AbortPrune = true;
+            await task;
+            Assert.IsTrue(mesh.AbortPrune);
+        }
+
+        [TestMethod]
+        public async Task GenerateAsync_ProducesValidPuzzle()
+        {
+            var mesh = PuzzleHelper.MakeMesh(3, 3, MeshType.Square, 0);
+            await mesh.GenerateAsync();
+            Assert.AreEqual(SolveState.Solved, mesh.TrySolve());
+        }
     }
 }
+

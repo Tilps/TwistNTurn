@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -10,53 +11,118 @@ namespace TwistNTurn
 
         public bool CreatingLoop = false;
 
+        private void GenerateInitialLoop(Random rnd, List<IAction> backup)
+        {
+            int targetCount = (int)Math.Floor(intersections.Count * generateLengthFraction);
+            long countSum = 0;
+            int tries = 0;
+            int loopTries = 0;
+            bool loopToSmall = true;
+            while (loopToSmall)
+            {
+                loopToSmall = false;
+                FullClear();
+                backup.Clear();
+                int start = rnd.Next(intersections.Count);
+                Intersection inters = intersections[start];
+                int edgeIntersIndex = rnd.Next(inters.Edges.Count);
+                int edgeIndex = inters.Edges[edgeIntersIndex];
+                Perform(edgeIndex, EdgeState.Filled, backup, 0);
+                bool success = CreateLoop(rnd, start, start, edgeIntersIndex);
+                int count = 0;
+                for (var index = 0; index < edges.Count; index++)
+                {
+                    Edge edge = edges[index];
+                    if (edge.State == EdgeState.Filled)
+                        count++;
+                }
+                countSum += count;
+                tries++;
+                if (count < targetCount || RateBoringness() > GenerateBoringFraction)
+                {
+                    if (loopTries > 100 && count >= countSum / tries)
+                    {
+                        if (TryExpandLoop(rnd, targetCount - count))
+                            break;
+                    }
+                    loopToSmall = true;
+                    loopTries++;
+                    if (loopTries > 1000)
+                        break;
+                }
+            }
+        }
+
+        private async Task GenerateInitialLoopAsync(Random rnd, List<IAction> backup, CancellationToken cancellationToken = default)
+        {
+            int targetCount = (int)Math.Floor(intersections.Count * generateLengthFraction);
+            long countSum = 0;
+            int tries = 0;
+            int loopTries = 0;
+            bool loopToSmall = true;
+            long lastYieldTicks = Stopwatch.GetTimestamp();
+
+            while (loopToSmall)
+            {
+                if (AbortPrune || cancellationToken.IsCancellationRequested)
+                    return;
+
+                long currentTicks = Stopwatch.GetTimestamp();
+                double elapsedMs = (currentTicks - lastYieldTicks) * 1000.0 / Stopwatch.Frequency;
+                if (elapsedMs >= 16.0)
+                {
+                    lastYieldTicks = currentTicks;
+                    await Task.Delay(1, cancellationToken);
+                    if (AbortPrune || cancellationToken.IsCancellationRequested)
+                        return;
+                }
+
+                loopToSmall = false;
+                FullClear();
+                backup.Clear();
+                int start = rnd.Next(intersections.Count);
+                Intersection inters = intersections[start];
+                int edgeIntersIndex = rnd.Next(inters.Edges.Count);
+                int edgeIndex = inters.Edges[edgeIntersIndex];
+                Perform(edgeIndex, EdgeState.Filled, backup, 0);
+                bool success = CreateLoop(rnd, start, start, edgeIntersIndex);
+                int count = 0;
+                for (var index = 0; index < edges.Count; index++)
+                {
+                    Edge edge = edges[index];
+                    if (edge.State == EdgeState.Filled)
+                        count++;
+                }
+                countSum += count;
+                tries++;
+                if (count < targetCount || RateBoringness() > GenerateBoringFraction)
+                {
+                    if (loopTries > 100 && count >= countSum / tries)
+                    {
+                        if (TryExpandLoop(rnd, targetCount - count))
+                            break;
+                    }
+                    loopToSmall = true;
+                    loopTries++;
+                    if (loopTries > 1000)
+                        break;
+                }
+            }
+        }
+
         public void Generate()
         {
             AbortPrune = false;
             bool done = false;
             List<IAction> backup = new List<IAction>();
             Random rnd = new Random();
-            int targetCount = (int)Math.Floor(intersections.Count * generateLengthFraction);
-            long countSum = 0;
-            int tries = 0;
             while (!done)
             {
                 try
                 {
                     CreatingLoop = true;
                     done = true;
-                    int loopTries = 0;
-                    bool loopToSmall = true;
-                    while (loopToSmall)
-                    {
-                        loopToSmall = false;
-                        FullClear();
-                        backup.Clear();
-                        int start = rnd.Next(intersections.Count);
-                        Intersection inters = intersections[start];
-                        int edgeIntersIndex = rnd.Next(inters.Edges.Count);
-                        int edgeIndex = inters.Edges[edgeIntersIndex];
-                        Perform(edgeIndex, EdgeState.Filled, backup, 0);
-                        bool success = CreateLoop(rnd, start, start, edgeIntersIndex);
-                        int count = 0;
-                        foreach (Edge edge in edges)
-                            if (edge.State == EdgeState.Filled)
-                                count++;
-                        countSum += count;
-                        tries++;
-                        if (count < targetCount || RateBoringness() > GenerateBoringFraction)
-                        {
-                            if (loopTries > 100 && count >= countSum / tries)
-                            {
-                                if (TryExpandLoop(rnd, targetCount - count))
-                                    break;
-                            }
-                            loopToSmall = true;
-                            loopTries++;
-                            if (loopTries > 1000)
-                                break;
-                        }
-                    }
+                    GenerateInitialLoop(rnd, backup);
                     for (int i = 0; i < 8; i++)
                     {
                         UpdateTwists();
@@ -1089,51 +1155,18 @@ namespace TwistNTurn
             bool done = false;
             List<IAction> backup = new List<IAction>();
             Random rnd = new Random();
-            int targetCount = (int)Math.Floor(intersections.Count * generateLengthFraction);
-            long countSum = 0;
-            int tries = 0;
             while (!done && !cancellationToken.IsCancellationRequested && !AbortPrune)
             {
                 try
                 {
                     CreatingLoop = true;
                     done = true;
-                    int loopTries = 0;
-                    bool loopToSmall = true;
-                    while (loopToSmall && !cancellationToken.IsCancellationRequested && !AbortPrune)
-                    {
-                        loopToSmall = false;
-                        FullClear();
-                        backup.Clear();
-                        int start = rnd.Next(intersections.Count);
-                        Intersection inters = intersections[start];
-                        int edgeIntersIndex = rnd.Next(inters.Edges.Count);
-                        int edgeIndex = inters.Edges[edgeIntersIndex];
-                        Perform(edgeIndex, EdgeState.Filled, backup, 0);
-                        bool success = CreateLoop(rnd, start, start, edgeIntersIndex);
-                        int count = 0;
-                        foreach (Edge edge in edges)
-                            if (edge.State == EdgeState.Filled)
-                                count++;
-                        countSum += count;
-                        tries++;
-                        if (count < targetCount || RateBoringness() > GenerateBoringFraction)
-                        {
-                            if (loopTries > 100 && count >= countSum / tries)
-                            {
-                                if (TryExpandLoop(rnd, targetCount - count))
-                                    break;
-                            }
-                            loopToSmall = true;
-                            loopTries++;
-                            if (loopTries > 1000)
-                                break;
-                        }
-                    }
+                    await GenerateInitialLoopAsync(rnd, backup, cancellationToken);
                     if (cancellationToken.IsCancellationRequested || AbortPrune) break;
 
                     for (int i = 0; i < 8; i++)
                     {
+                        if (cancellationToken.IsCancellationRequested || AbortPrune) break;
                         UpdateTwists();
                         if (!MakeLoopBetter())
                             break;
@@ -1160,7 +1193,11 @@ namespace TwistNTurn
                 catch (Exception e)
                 {
                     if (e.Message == "Can't solve it anyway")
+                    {
                         done = false;
+                        progress?.Report(0);
+                        await Task.Delay(1, cancellationToken);
+                    }
                     else
                         throw;
                 }
@@ -1169,7 +1206,15 @@ namespace TwistNTurn
 
         private async Task PruneCountsAsync(IProgress<int>? progress, CancellationToken cancellationToken)
         {
+            if (AbortPrune || cancellationToken.IsCancellationRequested)
+                return;
+
+            await Task.Delay(1, cancellationToken);
+
             SolveState state = TrySolve();
+            if (AbortPrune || cancellationToken.IsCancellationRequested)
+                return;
+
             if (state != SolveState.Solved)
                 throw new Exception("Can't solve it anyway");
             try
@@ -1210,7 +1255,7 @@ namespace TwistNTurn
                     progress?.Report(prunedCount);
                     if (prunedCount % 5 == 0)
                     {
-                        await Task.Yield();
+                        await Task.Delay(1, cancellationToken);
                     }
                 }
             }
