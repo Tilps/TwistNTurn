@@ -316,16 +316,16 @@ namespace TwistNTurn
 
         public Mesh(Mesh other)
         {
-            edges = new List<Edge>();
+            edges = [with(other.edges.Count)];
             for (var index = 0; index < other.edges.Count; index++)
             {
                 Edge edge = other.edges[index];
                 edges.Add(edge.Clone());
             }
-            intersections = new List<Intersection>();
+            intersections = [with(other.intersections.Count)];
             foreach (Intersection inters in other.intersections)
                 intersections.Add(inters.Clone());
-            cells = new List<Cell>();
+            cells = [with(other.cells.Count)];
             foreach (Cell cell in other.cells)
                 cells.Add(cell.Clone());
             SolverMethod = other.SolverMethod;
@@ -334,16 +334,16 @@ namespace TwistNTurn
             meshType = other.meshType;
             considerMultipleLoops = other.considerMultipleLoops;
             this.coloringCheats = other.coloringCheats;
-            this.colorSets = new List<List<int>>();
+            this.colorSets = [with(other.colorSets.Count)];
             foreach (List<int> otherColorSet in other.colorSets)
-                colorSets.Add(new List<int>(otherColorSet));
-            this.cellColorSets = new List<List<int>>();
+                colorSets.Add([.. otherColorSet]);
+            this.cellColorSets = [with(other.cellColorSets.Count)];
             foreach (List<int> otherCellColorSet in other.cellColorSets)
-                cellColorSets.Add(new List<int>(otherCellColorSet));
+                cellColorSets.Add([.. otherCellColorSet]);
             this.contaminateFullSolver = other.contaminateFullSolver;
-            this.edgeSets = new List<List<int>>();
+            this.edgeSets = [with(other.edgeSets.Count)];
             foreach (List<int> otherEdgeSet in other.edgeSets)
-                edgeSets.Add(new List<int>(otherEdgeSet));
+                edgeSets.Add([.. otherEdgeSet]);
             this.generateLengthFraction = other.generateLengthFraction;
             this.satisifiedIntersCount = other.satisifiedIntersCount;
             this.useColoring = other.useColoring;

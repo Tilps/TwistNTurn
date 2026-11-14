@@ -18,16 +18,16 @@ The project features a solver and generator that work across arbitrary planar me
 
 ## Architecture
 
-The project is built on **.NET 10** and **C# 14**, organized into modular SDK-style projects with zero compiler warnings and nullable reference types enabled:
+The project is built on **.NET 11** and **C# 15**, organized into modular SDK-style projects with zero compiler warnings and nullable reference types enabled:
 
-- **`TwistNTurn.Core`** (`net10.0`): Core puzzle generation and solver engine supporting arbitrary planar graphs and depth-limited deductive inference, URL-safe compact codec/compression, and an undo/redo action tree.
-- **`TwistNTurn.Web`** (`net10.0` Blazor WebAssembly): Modern, responsive web frontend running client-side in the browser via WebAssembly (with AOT compilation in Release). Features SVG rendering for Masyu white and black pearls, single-finger drawing/cycling, two-finger pinch-to-zoom and pan, keyboard shortcuts, checkpoints (Fix/Unfix/Revert), URL hash sharing, and PWA offline support.
-- **`TwistNTurn.Tests`** (`net10.0` MSTest): Automated test suite covering grid topology creation, pearl validation rules, solver deductions, undo/redo trees, edge state serialization, and puzzle codec round-tripping.
+- **`TwistNTurn.Core`** (`net11.0`): Core puzzle generation and solver engine supporting arbitrary planar graphs and depth-limited deductive inference, URL-safe compact codec/compression, and an undo/redo action tree.
+- **`TwistNTurn.Web`** (`net11.0` Blazor WebAssembly): Modern, responsive web frontend running client-side in the browser via WebAssembly (with AOT compilation in Release). Features SVG rendering for Masyu white and black pearls, single-finger drawing/cycling, two-finger pinch-to-zoom and pan, keyboard shortcuts, checkpoints (Fix/Unfix/Revert), URL hash sharing, and PWA offline support.
+- **`TwistNTurn.Tests`** (`net11.0` MSTest): Automated test suite covering grid topology creation, pearl validation rules, solver deductions, undo/redo trees, edge state serialization, and puzzle codec round-tripping.
 
 ## Building and Running
 
 ### Prerequisites
-- [.NET 10 SDK](https://dotnet.microsoft.com/)
+- [.NET 11 SDK](https://dotnet.microsoft.com/)
 - Optional for Web AOT: `dotnet workload install wasm-tools`
 
 ### Build the Solution

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -11,45 +12,46 @@ namespace TwistNTurn
 
         public bool CreatingLoop = false;
 
+        private bool TryInitialLoopAttempt(Random rnd, List<IAction> backup, int targetCount,
+            ref long countSum, ref int tries, ref int loopTries)
+        {
+            FullClear();
+            backup.Clear();
+            int start = rnd.Next(intersections.Count);
+            Intersection inters = intersections[start];
+            int edgeIntersIndex = rnd.Next(inters.Edges.Count);
+            int edgeIndex = inters.Edges[edgeIntersIndex];
+            Perform(edgeIndex, EdgeState.Filled, backup, 0);
+            _ = CreateLoop(rnd, start, start, edgeIntersIndex);
+            int count = 0;
+            for (var index = 0; index < edges.Count; index++)
+            {
+                if (edges[index].State == EdgeState.Filled)
+                    count++;
+            }
+            countSum += count;
+            tries++;
+            if (count < targetCount || RateBoringness() > GenerateBoringFraction)
+            {
+                if (loopTries > 100 && count >= countSum / tries)
+                {
+                    if (TryExpandLoop(rnd, targetCount - count))
+                        return true;
+                }
+                loopTries++;
+                return loopTries > 1000;
+            }
+            return true;
+        }
+
         private void GenerateInitialLoop(Random rnd, List<IAction> backup)
         {
             int targetCount = (int)Math.Floor(intersections.Count * generateLengthFraction);
             long countSum = 0;
             int tries = 0;
             int loopTries = 0;
-            bool loopToSmall = true;
-            while (loopToSmall)
+            while (!TryInitialLoopAttempt(rnd, backup, targetCount, ref countSum, ref tries, ref loopTries))
             {
-                loopToSmall = false;
-                FullClear();
-                backup.Clear();
-                int start = rnd.Next(intersections.Count);
-                Intersection inters = intersections[start];
-                int edgeIntersIndex = rnd.Next(inters.Edges.Count);
-                int edgeIndex = inters.Edges[edgeIntersIndex];
-                Perform(edgeIndex, EdgeState.Filled, backup, 0);
-                bool success = CreateLoop(rnd, start, start, edgeIntersIndex);
-                int count = 0;
-                for (var index = 0; index < edges.Count; index++)
-                {
-                    Edge edge = edges[index];
-                    if (edge.State == EdgeState.Filled)
-                        count++;
-                }
-                countSum += count;
-                tries++;
-                if (count < targetCount || RateBoringness() > GenerateBoringFraction)
-                {
-                    if (loopTries > 100 && count >= countSum / tries)
-                    {
-                        if (TryExpandLoop(rnd, targetCount - count))
-                            break;
-                    }
-                    loopToSmall = true;
-                    loopTries++;
-                    if (loopTries > 1000)
-                        break;
-                }
             }
         }
 
@@ -59,14 +61,10 @@ namespace TwistNTurn
             long countSum = 0;
             int tries = 0;
             int loopTries = 0;
-            bool loopToSmall = true;
             long lastYieldTicks = Stopwatch.GetTimestamp();
 
-            while (loopToSmall)
+            while (!AbortPrune && !cancellationToken.IsCancellationRequested)
             {
-                if (AbortPrune || cancellationToken.IsCancellationRequested)
-                    return;
-
                 long currentTicks = Stopwatch.GetTimestamp();
                 double elapsedMs = (currentTicks - lastYieldTicks) * 1000.0 / Stopwatch.Frequency;
                 if (elapsedMs >= 16.0)
@@ -77,71 +75,38 @@ namespace TwistNTurn
                         return;
                 }
 
-                loopToSmall = false;
-                FullClear();
-                backup.Clear();
-                int start = rnd.Next(intersections.Count);
-                Intersection inters = intersections[start];
-                int edgeIntersIndex = rnd.Next(inters.Edges.Count);
-                int edgeIndex = inters.Edges[edgeIntersIndex];
-                Perform(edgeIndex, EdgeState.Filled, backup, 0);
-                bool success = CreateLoop(rnd, start, start, edgeIntersIndex);
-                int count = 0;
-                for (var index = 0; index < edges.Count; index++)
-                {
-                    Edge edge = edges[index];
-                    if (edge.State == EdgeState.Filled)
-                        count++;
-                }
-                countSum += count;
-                tries++;
-                if (count < targetCount || RateBoringness() > GenerateBoringFraction)
-                {
-                    if (loopTries > 100 && count >= countSum / tries)
-                    {
-                        if (TryExpandLoop(rnd, targetCount - count))
-                            break;
-                    }
-                    loopToSmall = true;
-                    loopTries++;
-                    if (loopTries > 1000)
-                        break;
-                }
+                if (TryInitialLoopAttempt(rnd, backup, targetCount, ref countSum, ref tries, ref loopTries))
+                    break;
             }
+        }
+
+        private bool StepLoopOptimization(int iteration)
+        {
+            UpdateTwists();
+            if (!MakeLoopBetter())
+                return false;
+            ClearTwists();
+            if (iteration >= 7)
+                UpdateTwists();
+            return true;
         }
 
         public void Generate()
         {
             AbortPrune = false;
             bool done = false;
-            List<IAction> backup = new List<IAction>();
-            Random rnd = new Random();
+            List<IAction> backup = [];
+            Random rnd = Random.Shared;
             while (!done)
             {
                 try
                 {
                     CreatingLoop = true;
-                    done = true;
                     GenerateInitialLoop(rnd, backup);
                     for (int i = 0; i < 8; i++)
                     {
-                        UpdateTwists();
-                        /*Mesh clone = new Mesh(this);
-                        clone.Clear();
-                        SolveState state = clone.TrySolve();
-                        Mesh clone2 = new Mesh(this);
-                        if (state == SolveState.Solved && MakeLoopBetter())
-                            throw new Exception(clone2.DebugView());*/
-                        
-                        if (!MakeLoopBetter())
+                        if (!StepLoopOptimization(i))
                             break;
-                        if (i < 7)
-                            ClearTwists();
-                        else
-                        {
-                            ClearTwists();
-                            UpdateTwists();
-                        }
                     }
                 }
                 finally
@@ -149,17 +114,7 @@ namespace TwistNTurn
                     CreatingLoop = false;
                 }
                 Clear();
-                try
-                {
-                    PruneCounts();
-                }
-                catch (Exception e)
-                {
-                    if (e.Message == "Can't solve it anyway")
-                        done = false;
-                    else
-                        throw;
-                }
+                done = TryPruneCounts();
             }
         }
 
@@ -175,10 +130,10 @@ namespace TwistNTurn
                     filledCount++;
                 }
             }
-            List<int> edgesSeen = new List<int>();
-            List<int> intersSeen = new List<int>();
-            List<IntersType> intersTypes = new List<IntersType>();
-            List<bool> turned = new List<bool>();
+            List<int> edgesSeen = [with(filledCount + 1)];
+            List<int> intersSeen = [with(filledCount)];
+            List<IntersType> intersTypes = [with(filledCount)];
+            List<bool> turned = [with(filledCount)];
             int nextInter = edges[filledEdge].Intersections[0];
             edgesSeen.Add(filledEdge);
             for (int i = 0; i < filledCount; i++)
@@ -194,7 +149,7 @@ namespace TwistNTurn
                 nextInter = GetOtherInters(filledEdge, nextInter);
             }
             edgesSeen.RemoveAt(edgesSeen.Count - 1);
-            List<int> candidates = new List<int>();
+            List<int> candidates = [];
             for (int i = 0; i < filledCount; i++)
             {
                 if (intersTypes[i] != IntersType.Unknown)
@@ -212,19 +167,17 @@ namespace TwistNTurn
                     continue;
                 candidates.Add(edgesSeen[i]);
             }
-            Dictionary<int, bool> candidateCheck = new Dictionary<int, bool>();
-            foreach (int i in candidates)
-                candidateCheck.Add(i, true);
+            HashSet<int> candidateCheck = [with(candidates.Count), ..candidates];
             bool changed = false;
             foreach (int edge in candidates)
             {
-                changed |= TryPop(edge,  candidateCheck);
+                changed |= TryPop(edge, candidateCheck);
             }
             return changed;
         }
 
 
-        private bool TryPop(int edgeToPop, Dictionary<int, bool> candidateCheck)
+        private bool TryPop(int edgeToPop, HashSet<int> candidateCheck)
         {
             Edge eToPop = edges[edgeToPop];
             for (var i = 0; i < eToPop.Cells.Count; i++)
@@ -272,7 +225,7 @@ namespace TwistNTurn
             return false;
         }
 
-        private bool IsPopable(Cell cell, Dictionary<int, bool> candidateCheck)
+        private bool IsPopable(Cell cell, HashSet<int> candidateCheck)
         {
             if (cell.FilledCount == 0 || cell.FilledCount == cell.Edges.Count)
                 return false;
@@ -285,16 +238,16 @@ namespace TwistNTurn
             return true;
         }
 
-        private bool AllCandidates(Cell cell, Dictionary<int, bool> candidateCheck)
+        private bool AllCandidates(Cell cell, HashSet<int> candidateCheck)
         {
             for (var index = 0; index < cell.Edges.Count; index++)
             {
                 int edge = cell.Edges[index];
-                if (edges[edge].State == EdgeState.Filled && !candidateCheck.ContainsKey(edge))
+                if (edges[edge].State == EdgeState.Filled && !candidateCheck.Contains(edge))
                     return false;
             }
             return true;
-        }        
+        }
 
         bool[]? boringEdges;
 
@@ -306,32 +259,22 @@ namespace TwistNTurn
                 Array.Clear(boringEdges, 0, boringEdges.Length);
             int boringCount = 0;
             int total = edges.Count;
-            for (int index = 0; index < edges.Count; index++)
+            edgeLoop: for (int index = 0; index < edges.Count; index++)
             {
                 Edge e = edges[index];
                 if (e.State != EdgeState.Empty)
                     continue;
-                bool found = false;
                 foreach (int interIndex in e.Intersections)
                 {
                     Intersection inter = intersections[interIndex];
                     for (var i = 0; i < inter.Edges.Count; i++)
                     {
-                        int edgeIndex = inter.Edges[i];
-                        if (edges[edgeIndex].State != EdgeState.Empty)
-                        {
-                            found = true;
-                            break;
-                        }
+                        if (edges[inter.Edges[i]].State != EdgeState.Empty)
+                            continue edgeLoop;
                     }
-                    if (found)
-                        break;
                 }
-                if (!found)
-                {
-                    boringCount++;
-                    boringEdges[index] = true;
-                }
+                boringCount++;
+                boringEdges[index] = true;
             }
             return (double)boringCount / (double)total;
         }
@@ -342,7 +285,7 @@ namespace TwistNTurn
             while (lastTarget != targetAdditional)
             {
                 lastTarget = targetAdditional;
-                List<int> cellsToExpand = new List<int>();
+                List<int> cellsToExpand = [];
                 for (int tries = 0; tries < 2; tries++)
                 {
                     for (int i = 0; i < cells.Count; i++)
@@ -356,14 +299,7 @@ namespace TwistNTurn
                     if (cellsToExpand.Count > 0 || targetAdditional > 0)
                         break;
                 }
-                for (int i = 0; i < cellsToExpand.Count; i++)
-                {
-                    int first = rnd.Next(cellsToExpand.Count);
-                    int second = rnd.Next(cellsToExpand.Count);
-                    int tmp = cellsToExpand[first];
-                    cellsToExpand[first] = cellsToExpand[second];
-                    cellsToExpand[second] = tmp;
-                }
+                rnd.Shuffle(CollectionsMarshal.AsSpan(cellsToExpand));
                 int index = 0;
                 while ((targetAdditional > 0 || RateBoringness() > GenerateBoringFraction) && index < cellsToExpand.Count)
                 {
@@ -538,16 +474,7 @@ namespace TwistNTurn
                 return false;
             if (availEdges.Count > 1)
             {
-                for (int i = 0; i < 2 * availEdges.Count; i++)
-                {
-                    int a = rnd.Next(availEdges.Count);
-                    int b = rnd.Next(availEdges.Count);
-                    if (a == b)
-                        continue;
-                    int tmp = availEdges[a];
-                    availEdges[a] = availEdges[b];
-                    availEdges[b] = tmp;
-                }
+                rnd.Shuffle(CollectionsMarshal.AsSpan(availEdges));
             }
             List<IAction> backup = new List<IAction>();
             for (var i2 = 0; i2 < availEdges.Count; i2++)
@@ -918,135 +845,50 @@ namespace TwistNTurn
 
         private bool pruning = false;
 
-        private void PruneCounts()
+        private int[] CreateShuffledTrials(Random rnd)
+        {
+            int[] trials = new int[intersections.Count];
+            for (int i = 0; i < trials.Length; i++)
+                trials[i] = i;
+            rnd.Shuffle(trials);
+            return trials;
+        }
+
+        private void TryPruneIntersection(int trial)
+        {
+            Intersection inter = intersections[trial];
+            IntersType oldVal = inter.Type;
+            inter.Type = IntersType.Unknown;
+            if (TrySolve() != SolveState.Solved)
+            {
+                inter.Type = oldVal;
+            }
+            else
+            {
+                finalSolution = solutionsFound != null && solutionsFound.Count > 0 ? solutionsFound[0] : null;
+                finalDepthPatern = solutionDepthPatern != null && solutionDepthPatern.Count > 0 ? solutionDepthPatern[0] : null;
+            }
+        }
+
+        private bool TryPruneCounts()
         {
             SolveState state = TrySolve();
             if (state != SolveState.Solved)
-                throw new Exception("Can't solve it anyway");
+                return false;
             try
             {
                 pruning = true;
-                finalSolution = solutionsFound[0];
-                finalDepthPatern = solutionDepthPatern[0];
-                bool[] tried = new bool[intersections.Count];
-                int[] trials = new int[intersections.Count];
-                for (int i = 0; i < trials.Length; i++)
-                    trials[i] = i;
-                Random rnd = new Random();
-                for (int i = 0; i < trials.Length * 2; i++)
-                {
-                    int a = rnd.Next(trials.Length);
-                    int b = rnd.Next(trials.Length);
-                    int tmp = trials[a];
-                    trials[a] = trials[b];
-                    trials[b] = tmp;
-                }
-                int width = 0;
-                int height = 0;
-                if (meshType == MeshType.SquareSymmetrical)
-                {
-                    bool found = true;
-                    int iSearch = 0;
-                    while (found)
-                    {
-                        found = true;
-                        try
-                        {
-                            GetEdgeJoining(iSearch, iSearch + 1);
-                        }
-                        catch
-                        {
-                            found = false;
-                        }
-                        iSearch++;
-                    }
-                    height = iSearch - 1;
-                    width = Cells.Count / height;
-
-                }
+                finalSolution = solutionsFound != null && solutionsFound.Count > 0 ? solutionsFound[0] : null;
+                finalDepthPatern = solutionDepthPatern != null && solutionDepthPatern.Count > 0 ? solutionDepthPatern[0] : null;
+                int[] trials = CreateShuffledTrials(Random.Shared);
                 foreach (int trial in trials)
                 {
                     if (AbortPrune)
                         break;
-                   // if (meshType != MeshType.SquareSymmetrical)
-                   // {
-                        Intersection inter = intersections[trial];
-                        IntersType oldVal = inter.Type;
-                        inter.Type = IntersType.Unknown;
-                        if (TrySolve() != SolveState.Solved)
-                        {
-                            inter.Type = oldVal;
-                        }
-                        else
-                        {
-                            finalSolution = solutionsFound[0];
-                            finalDepthPatern = solutionDepthPatern[0];
-                        }
-                        if (PrunedCountProgress != null)
-                            PrunedCountProgress(this, EventArgs.Empty);
-                    //}
-                    //else
-                    //{
-                    //    Cell cell = cells[trial];
-                    //    if (tried[trial])
-                    //    {
-                    //        continue;
-                    //    }
-                    //    int oldVal = cell.TargetCount;
-                    //    RemoveTarget(cell);
-                    //    int y = trial / width;
-                    //    int x = trial % width;
-                    //    int otherY = height - y - 1;
-                    //    int otherX = width - x - 1;
-                    //    int otherTrial = otherY * width + otherX;
-                    //    if (otherTrial == trial)
-                    //    {
-                    //        if (TrySolve() != SolveState.Solved)
-                    //        {
-                    //            AddTarget(cell, oldVal);
-                    //        }
-                    //        else
-                    //        {
-                    //            finalSolution = solutionsFound[0];
-                    //            finalDepthPatern = solutionDepthPatern[0];
-                    //        }
-                    //        tried[trial] = true;
-                    //        if (PrunedCountProgress != null)
-                    //            PrunedCountProgress(this, EventArgs.Empty);
-                    //    }
-                    //    else
-                    //    {
-                    //        // While we have just removed a cell, there is no way trial and other trial can be adjacent
-                    //        // Not in square symmetrical at least - so we don't need to recalculate the protected list.
-                    //        if (prot.Contains(otherTrial))
-                    //        {
-                    //            AddTarget(cell, oldVal);
-                    //            if (PrunedCountProgress != null)
-                    //                PrunedCountProgress(this, EventArgs.Empty);
-                    //            continue;
-                    //        }
-                    //        Cell otherCell = cells[otherTrial];
-                    //        int otherOldVal = otherCell.TargetCount;
-                    //        RemoveTarget(otherCell);
-                    //        if (TrySolve() != SolveState.Solved)
-                    //        {
-                    //            AddTarget(cell, oldVal);
-                    //            AddTarget(otherCell, otherOldVal);
-                    //        }
-                    //        else
-                    //        {
-                    //            finalSolution = solutionsFound[0];
-                    //            finalDepthPatern = solutionDepthPatern[0];
-                    //        }
-                    //        tried[trial] = true;
-                    //        tried[otherTrial] = true;
-                    //        if (PrunedCountProgress != null)
-                    //            PrunedCountProgress(this, EventArgs.Empty);
-                    //        if (PrunedCountProgress != null)
-                    //            PrunedCountProgress(this, EventArgs.Empty);
-                    //    }
-                    //}
+                    TryPruneIntersection(trial);
+                    PrunedCountProgress?.Invoke(this, EventArgs.Empty);
                 }
+                return true;
             }
             finally
             {
@@ -1153,30 +995,21 @@ namespace TwistNTurn
         {
             AbortPrune = false;
             bool done = false;
-            List<IAction> backup = new List<IAction>();
-            Random rnd = new Random();
+            List<IAction> backup = [];
+            Random rnd = Random.Shared;
             while (!done && !cancellationToken.IsCancellationRequested && !AbortPrune)
             {
                 try
                 {
                     CreatingLoop = true;
-                    done = true;
                     await GenerateInitialLoopAsync(rnd, backup, cancellationToken);
                     if (cancellationToken.IsCancellationRequested || AbortPrune) break;
 
                     for (int i = 0; i < 8; i++)
                     {
                         if (cancellationToken.IsCancellationRequested || AbortPrune) break;
-                        UpdateTwists();
-                        if (!MakeLoopBetter())
+                        if (!StepLoopOptimization(i))
                             break;
-                        if (i < 7)
-                            ClearTwists();
-                        else
-                        {
-                            ClearTwists();
-                            UpdateTwists();
-                        }
                     }
                 }
                 finally
@@ -1186,71 +1019,41 @@ namespace TwistNTurn
                 Clear();
                 if (cancellationToken.IsCancellationRequested || AbortPrune) break;
 
-                try
+                done = await TryPruneCountsAsync(progress, cancellationToken);
+                if (!done && !cancellationToken.IsCancellationRequested && !AbortPrune)
                 {
-                    await PruneCountsAsync(progress, cancellationToken);
-                }
-                catch (Exception e)
-                {
-                    if (e.Message == "Can't solve it anyway")
-                    {
-                        done = false;
-                        progress?.Report(0);
-                        await Task.Delay(1, cancellationToken);
-                    }
-                    else
-                        throw;
+                    progress?.Report(0);
+                    await Task.Delay(1, cancellationToken);
                 }
             }
         }
 
-        private async Task PruneCountsAsync(IProgress<int>? progress, CancellationToken cancellationToken)
+        private async Task<bool> TryPruneCountsAsync(IProgress<int>? progress, CancellationToken cancellationToken)
         {
             if (AbortPrune || cancellationToken.IsCancellationRequested)
-                return;
+                return false;
 
             await Task.Delay(1, cancellationToken);
 
             SolveState state = TrySolve();
             if (AbortPrune || cancellationToken.IsCancellationRequested)
-                return;
+                return false;
 
             if (state != SolveState.Solved)
-                throw new Exception("Can't solve it anyway");
+                return false;
+
             try
             {
                 pruning = true;
                 finalSolution = solutionsFound != null && solutionsFound.Count > 0 ? solutionsFound[0] : null;
                 finalDepthPatern = solutionDepthPatern != null && solutionDepthPatern.Count > 0 ? solutionDepthPatern[0] : null;
-                int[] trials = new int[intersections.Count];
-                for (int i = 0; i < trials.Length; i++)
-                    trials[i] = i;
-                Random rnd = new Random();
-                for (int i = 0; i < trials.Length * 2; i++)
-                {
-                    int a = rnd.Next(trials.Length);
-                    int b = rnd.Next(trials.Length);
-                    int tmp = trials[a];
-                    trials[a] = trials[b];
-                    trials[b] = tmp;
-                }
+                int[] trials = CreateShuffledTrials(Random.Shared);
                 int prunedCount = 0;
                 foreach (int trial in trials)
                 {
                     if (AbortPrune || cancellationToken.IsCancellationRequested)
                         break;
-                    Intersection inter = intersections[trial];
-                    IntersType oldVal = inter.Type;
-                    inter.Type = IntersType.Unknown;
-                    if (TrySolve() != SolveState.Solved)
-                    {
-                        inter.Type = oldVal;
-                    }
-                    else
-                    {
-                        finalSolution = solutionsFound != null && solutionsFound.Count > 0 ? solutionsFound[0] : null;
-                        finalDepthPatern = solutionDepthPatern != null && solutionDepthPatern.Count > 0 ? solutionDepthPatern[0] : null;
-                    }
+                    TryPruneIntersection(trial);
                     prunedCount++;
                     progress?.Report(prunedCount);
                     if (prunedCount % 5 == 0)
@@ -1258,6 +1061,7 @@ namespace TwistNTurn
                         await Task.Delay(1, cancellationToken);
                     }
                 }
+                return true;
             }
             finally
             {

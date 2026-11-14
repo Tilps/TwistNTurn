@@ -53,12 +53,19 @@ namespace TwistNTurn.Tests
         }
 
         [TestMethod]
-        public void PuzzleCompression_RoundTrip_CompressesAndDecompresses()
+        [DataRow("a")]
+        [DataRow("ab")]
+        [DataRow("abc")]
+        [DataRow("abcd")]
+        [DataRow("sq/10x10/5w3b12w8b...sample_puzzle_string_with_data")]
+        public void PuzzleCompression_RoundTrip_CompressesAndDecompresses(string original)
         {
-            string original = "sq/10x10/5w3b12w8b...sample_puzzle_string_with_data";
             string compressed = PuzzleCompression.Compress(original);
 
             Assert.IsFalse(string.IsNullOrWhiteSpace(compressed));
+            Assert.IsFalse(compressed.Contains('+'));
+            Assert.IsFalse(compressed.Contains('/'));
+            Assert.IsFalse(compressed.Contains('='));
             string decompressed = PuzzleCompression.Decompress(compressed);
 
             Assert.AreEqual(original, decompressed);

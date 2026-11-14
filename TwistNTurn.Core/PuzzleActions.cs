@@ -25,36 +25,27 @@ namespace TwistNTurn
         public bool Successful => successful;
         public string Name => $"Edge {edgeIndex} Toggle";
 
-        private static EdgeState NextState(EdgeState current, bool reverse)
+        internal static EdgeState NextState(EdgeState current, bool reverse) => (current, reverse) switch
         {
-            if (!reverse)
-            {
-                return current switch
-                {
-                    EdgeState.Empty => EdgeState.Filled,
-                    EdgeState.Filled => EdgeState.Excluded,
-                    EdgeState.Excluded => EdgeState.Empty,
-                    _ => EdgeState.Empty
-                };
-            }
-            else
-            {
-                return current switch
-                {
-                    EdgeState.Empty => EdgeState.Excluded,
-                    EdgeState.Excluded => EdgeState.Filled,
-                    EdgeState.Filled => EdgeState.Empty,
-                    _ => EdgeState.Empty
-                };
-            }
-        }
+            (EdgeState.Empty, false) => EdgeState.Filled,
+            (EdgeState.Filled, false) => EdgeState.Excluded,
+            (EdgeState.Empty, true) => EdgeState.Excluded,
+            (EdgeState.Excluded, true) => EdgeState.Filled,
+            _ => EdgeState.Empty
+        };
 
-        public bool Perform()
+        internal static bool TransitionEdge(
+            Mesh mesh,
+            int edgeIndex,
+            EdgeState targetState,
+            int autoMove,
+            bool disallowFalseMove,
+            out List<IAction> actionsPerformed,
+            out bool successful)
         {
             successful = true;
+            actionsPerformed = [];
             Edge closest = mesh.Edges[edgeIndex];
-            EdgeState toggled = NextState(closest.State, isAlternativeCycle);
-            actionsPerformed = new List<IAction>();
 
             if (closest.State != EdgeState.Empty)
             {
@@ -64,31 +55,41 @@ namespace TwistNTurn
                 {
                     if (res && !unsetAction.Successful)
                         actionsPerformed.Add(unsetAction);
-                    Unperform();
+                    if (actionsPerformed.Count > 0)
+                        mesh.Unperform(actionsPerformed);
+                    successful = false;
                     return false;
                 }
-                else if (!res || !unsetAction.Successful)
+                if (!res || !unsetAction.Successful)
                 {
                     successful = false;
                 }
                 actionsPerformed.Add(unsetAction);
             }
 
-            if (toggled != EdgeState.Empty)
+            if (targetState != EdgeState.Empty)
             {
-                bool res = mesh.Perform(edgeIndex, toggled, actionsPerformed, autoMove);
+                bool res = mesh.Perform(edgeIndex, targetState, actionsPerformed, autoMove);
                 if (!res && disallowFalseMove)
                 {
-                    Unperform();
+                    if (actionsPerformed.Count > 0)
+                        mesh.Unperform(actionsPerformed);
+                    successful = false;
                     return false;
                 }
-                else if (!res)
+                if (!res)
                 {
                     successful = false;
                 }
             }
 
             return true;
+        }
+
+        public bool Perform()
+        {
+            EdgeState toggled = NextState(mesh.Edges[edgeIndex].State, isAlternativeCycle);
+            return TransitionEdge(mesh, edgeIndex, toggled, autoMove, disallowFalseMove, out actionsPerformed, out successful);
         }
 
         public void Unperform()
@@ -215,46 +216,8 @@ namespace TwistNTurn
 
         public bool Perform()
         {
-            successful = true;
-            Edge closest = mesh.Edges[edgeIndex];
-            if (closest.State == targetState) return false;
-
-            actionsPerformed = new List<IAction>();
-
-            if (closest.State != EdgeState.Empty)
-            {
-                IAction unsetAction = new UnsetAction(mesh, edgeIndex);
-                bool res = unsetAction.Perform();
-                if ((!res || !unsetAction.Successful) && disallowFalseMove)
-                {
-                    if (res && !unsetAction.Successful)
-                        actionsPerformed.Add(unsetAction);
-                    Unperform();
-                    return false;
-                }
-                else if (!res || !unsetAction.Successful)
-                {
-                    successful = false;
-                }
-                actionsPerformed.Add(unsetAction);
-            }
-
-            if (targetState != EdgeState.Empty)
-            {
-                bool res = mesh.Perform(edgeIndex, targetState, actionsPerformed, 0);
-                if (!res && disallowFalseMove)
-                {
-                    successful = false;
-                    Unperform();
-                    return false;
-                }
-                else if (!res)
-                {
-                    successful = false;
-                }
-            }
-
-            return true;
+            if (mesh.Edges[edgeIndex].State == targetState) return false;
+            return PuzzleEdgeAction.TransitionEdge(mesh, edgeIndex, targetState, 0, disallowFalseMove, out actionsPerformed, out successful);
         }
 
         public void Unperform()

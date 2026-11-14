@@ -439,6 +439,7 @@
     private int draggedEdgesCount = 0;
     private IDisposable? timer;
     private DotNetObjectReference<Home>? selfRef;
+    private CancellationTokenSource? shareToastCts;
 
     protected override void OnInitialized()
     {
@@ -459,7 +460,7 @@
         {
             if (selfRef != null)
             {
-                await JS.InvokeVoidAsync("registerTwistShortcuts", selfRef);
+                await SafeInvokeVoidAsync("registerTwistShortcuts", selfRef);
             }
 
             try
@@ -476,32 +477,15 @@
                 string hash = await JS.InvokeAsync<string>("twistHelpers.getUrlHash");
                 if (!string.IsNullOrEmpty(hash))
                 {
-                    if (hash.StartsWith("#")) hash = hash.Substring(1);
+                    if (hash.StartsWith('#')) hash = hash[1..];
                     string code = hash;
-                    if (code.StartsWith("p=")) code = code.Substring(2);
-                    else if (code.StartsWith("puzzle=")) code = code.Substring(7);
+                    if (code.StartsWith("p=")) code = code[2..];
+                    else if (code.StartsWith("puzzle=")) code = code[7..];
 
                     // A) Check if it's the compact format (e.g. sq/10x10/...)
                     if (PuzzleCodec.TryDecode(code, out _, out _, out _, out _))
                     {
-                        string? savedJson = await JS.InvokeAsync<string?>("twistHelpers.loadGameState");
-                        if (!string.IsNullOrEmpty(savedJson))
-                        {
-                            try
-                            {
-                                var savedState = System.Text.Json.JsonSerializer.Deserialize<SavedGameState>(savedJson);
-                                if (savedState != null && (savedState.Puzzle == code || savedState.Puzzle == hash))
-                                {
-                                    if (Game.RestoreState(savedState))
-                                    {
-                                        loaded = true;
-                                        selectedType = Game.CurrentType.ToString();
-                                    }
-                                }
-                            }
-                            catch {}
-                        }
-
+                        loaded = await TryRestoreFromLocalStorageAsync(s => s.Puzzle == code || s.Puzzle == hash);
                         if (!loaded && Game.LoadPuzzleText(code))
                         {
                             loaded = true;
@@ -516,24 +500,7 @@
                             string puzzleText = PuzzleCompression.Decompress(code);
                             if (!string.IsNullOrEmpty(puzzleText))
                             {
-                                string? savedJson = await JS.InvokeAsync<string?>("twistHelpers.loadGameState");
-                                if (!string.IsNullOrEmpty(savedJson))
-                                {
-                                    try
-                                    {
-                                        var savedState = System.Text.Json.JsonSerializer.Deserialize<SavedGameState>(savedJson);
-                                        if (savedState != null && savedState.Puzzle == puzzleText)
-                                        {
-                                            if (Game.RestoreState(savedState))
-                                            {
-                                                loaded = true;
-                                                selectedType = Game.CurrentType.ToString();
-                                            }
-                                        }
-                                    }
-                                    catch {}
-                                }
-
+                                loaded = await TryRestoreFromLocalStorageAsync(s => s.Puzzle == puzzleText);
                                 if (!loaded && Game.LoadPuzzleText(puzzleText))
                                 {
                                     loaded = true;
@@ -553,23 +520,7 @@
             // 2. Check localStorage if no hash loaded
             if (!loaded)
             {
-                try
-                {
-                    string? savedJson = await JS.InvokeAsync<string?>("twistHelpers.loadGameState");
-                    if (!string.IsNullOrEmpty(savedJson))
-                    {
-                        var savedState = System.Text.Json.JsonSerializer.Deserialize<SavedGameState>(savedJson);
-                        if (savedState != null && Game.RestoreState(savedState))
-                        {
-                            loaded = true;
-                            selectedType = Game.CurrentType.ToString();
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to restore local state: {ex.Message}");
-                }
+                loaded = await TryRestoreFromLocalStorageAsync();
             }
 
             // 3. Fallback to generating fresh puzzle
@@ -580,16 +531,13 @@
             else
             {
                 ResetZoom();
-                if (selfRef != null)
-                {
-                    await JS.InvokeVoidAsync("initTwistBoard", "game-board-svg", selfRef);
-                }
+                await InitBoardJsAsync();
                 StateHasChanged();
             }
         }
-        else if (Game.CurrentMesh != null && selfRef != null)
+        else if (Game.CurrentMesh != null)
         {
-            await JS.InvokeVoidAsync("initTwistBoard", "game-board-svg", selfRef);
+            await InitBoardJsAsync();
         }
     }
 
@@ -644,10 +592,7 @@
         catch {}
 
         await Game.GenerateNewPuzzleAsync();
-        if (selfRef != null)
-        {
-            await JS.InvokeVoidAsync("initTwistBoard", "game-board-svg", selfRef);
-        }
+        await InitBoardJsAsync();
     }
 
     private async Task ToggleTheme()
@@ -671,13 +616,11 @@
             string baseUrl = await JS.InvokeAsync<string>("twistHelpers.getBaseUrl");
             string fullUrl = $"{baseUrl}#p={compact}";
             await JS.InvokeAsync<bool>("twistHelpers.copyToClipboard", fullUrl);
+            shareToastCts?.Cancel();
+            shareToastCts?.Dispose();
+            shareToastCts = new CancellationTokenSource();
             showShareToast = true;
-            StateHasChanged();
-            _ = Task.Delay(2500).ContinueWith(_ =>
-            {
-                showShareToast = false;
-                InvokeAsync(StateHasChanged);
-            });
+            _ = HideShareToastAfterDelayAsync(shareToastCts.Token);
         }
         catch (Exception ex)
         {
@@ -696,7 +639,6 @@
         zoomScale = 1.0f;
         panX = 0f;
         panY = 0f;
-        StateHasChanged();
     }
 
     [JSInvokable]
@@ -900,12 +842,7 @@
         {
             Game.UndoAndForget();
         }
-        isPointerDown = false;
-        dragTargetState = null;
-        lastClosestEdge = -1;
-        lastClosestCell = -1;
-        speculativeFirstTouchToggled = false;
-        draggedEdgesCount = 0;
+        OnSvgPointerUp();
     }
 
     [JSInvokable]
@@ -928,15 +865,71 @@
         StateHasChanged();
     }
 
+    private async Task<bool> TryRestoreFromLocalStorageAsync(Func<SavedGameState, bool>? predicate = null)
+    {
+        try
+        {
+            string? savedJson = await JS.InvokeAsync<string?>("twistHelpers.loadGameState");
+            if (string.IsNullOrEmpty(savedJson))
+                return false;
+
+            var savedState = System.Text.Json.JsonSerializer.Deserialize<SavedGameState>(savedJson);
+            if (savedState != null && (predicate == null || predicate(savedState)) && Game.RestoreState(savedState))
+            {
+                selectedType = Game.CurrentType.ToString();
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to restore local state: {ex.Message}");
+        }
+        return false;
+    }
+
+    private async Task HideShareToastAfterDelayAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(2500, token);
+            showShareToast = false;
+            StateHasChanged();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task SafeInvokeVoidAsync(string identifier, params object?[] args)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync(identifier, args);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"JS interop error ({identifier}): {ex.Message}");
+        }
+    }
+
+    private Task InitBoardJsAsync()
+    {
+        return selfRef != null
+            ? SafeInvokeVoidAsync("initTwistBoard", "game-board-svg", selfRef)
+            : Task.CompletedTask;
+    }
+
     private async Task ReloadFromServer()
     {
-        await JS.InvokeVoidAsync("twistHelpers.reloadFromServer");
+        await SafeInvokeVoidAsync("twistHelpers.reloadFromServer");
     }
 
     public void Dispose()
     {
         Game.OnStateChanged -= HandleStateChanged;
         timer?.Dispose();
+        shareToastCts?.Cancel();
+        shareToastCts?.Dispose();
         selfRef?.Dispose();
     }
 }

@@ -62,6 +62,7 @@ namespace TwistNTurn.Web.Services
             if (IsGenerating) return;
 
             generationCts?.Cancel();
+            generationCts?.Dispose();
             generationCts = new CancellationTokenSource();
             var token = generationCts.Token;
 
@@ -113,6 +114,7 @@ namespace TwistNTurn.Web.Services
             finally
             {
                 generatingMesh = null;
+                generationCts?.Dispose();
                 generationCts = null;
                 GenerationStartTime = null;
                 IsGenerating = false;
@@ -128,10 +130,7 @@ namespace TwistNTurn.Web.Services
             if (MarkedEdges.Contains(edgeIndex))
                 return;
 
-            var current = CurrentMesh.Edges[edgeIndex].State;
-            var next = !isAlternative
-                ? (current == EdgeState.Empty ? EdgeState.Filled : (current == EdgeState.Filled ? EdgeState.Excluded : EdgeState.Empty))
-                : (current == EdgeState.Empty ? EdgeState.Excluded : (current == EdgeState.Excluded ? EdgeState.Filled : EdgeState.Empty));
+            EdgeState next = PuzzleEdgeAction.NextState(CurrentMesh.Edges[edgeIndex].State, isAlternative);
 
             var action = new PuzzleSetEdgeStateAction(CurrentMesh, edgeIndex, next, DisallowFalseMove);
             if (UndoTree.Do(action))
@@ -281,23 +280,31 @@ namespace TwistNTurn.Web.Services
             };
         }
 
+        private static bool TryDecodeOrLoadMesh(string data, out Mesh? mesh, out bool isDecoded, out int width, out int height)
+        {
+            if (PuzzleCodec.TryDecode(data, out mesh, out width, out height, out _))
+            {
+                isDecoded = true;
+                return mesh != null;
+            }
+
+            isDecoded = false;
+            var lines = data.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+            mesh = new Mesh(0, 0, MeshType.Square);
+            if (!mesh.LoadFromText(lines))
+            {
+                mesh = null;
+                return false;
+            }
+            return true;
+        }
+
         public bool RestoreState(SavedGameState state)
         {
             if (string.IsNullOrEmpty(state.Puzzle)) return false;
 
-            Mesh? mesh = null;
-            if (PuzzleCodec.TryDecode(state.Puzzle, out var decodedMesh, out int w, out int h, out var decodedType))
-            {
-                mesh = decodedMesh;
-            }
-            else
-            {
-                var lines = state.Puzzle.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                mesh = new Mesh(0, 0, MeshType.Square);
-                if (!mesh.LoadFromText(lines)) return false;
-            }
-
-            if (mesh == null) return false;
+            if (!TryDecodeOrLoadMesh(state.Puzzle, out var mesh, out _, out _, out _) || mesh == null)
+                return false;
 
             CurrentMesh = mesh;
             CurrentType = mesh.MeshType;
@@ -355,17 +362,12 @@ namespace TwistNTurn.Web.Services
         {
             if (string.IsNullOrEmpty(puzzleText)) return false;
 
-            Mesh? mesh = null;
-            if (PuzzleCodec.TryDecode(puzzleText, out var decodedMesh, out int w, out int h, out var decodedType))
+            if (!TryDecodeOrLoadMesh(puzzleText, out var mesh, out bool isDecoded, out int w, out int h) || mesh == null)
+                return false;
+
+            if (isDecoded)
             {
-                mesh = decodedMesh;
                 SizeText = $"{w}x{h}";
-            }
-            else
-            {
-                var lines = puzzleText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                mesh = new Mesh(0, 0, MeshType.Square);
-                if (!mesh.LoadFromText(lines)) return false;
             }
 
             if (mesh == null) return false;

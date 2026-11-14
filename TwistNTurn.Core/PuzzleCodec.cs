@@ -83,9 +83,9 @@ namespace TwistNTurn
             if (string.IsNullOrWhiteSpace(code)) return false;
 
             code = code.Trim();
-            if (code.StartsWith("#")) code = code.Substring(1);
-            if (code.StartsWith("p=")) code = code.Substring(2);
-            else if (code.StartsWith("puzzle=")) code = code.Substring(7);
+            if (code.StartsWith('#')) code = code[1..];
+            if (code.StartsWith("p=")) code = code[2..];
+            else if (code.StartsWith("puzzle=")) code = code[7..];
 
             // Check if it's the legacy format: {w}x{h}:{cluestring}
             int colonIndex = code.IndexOf(':');

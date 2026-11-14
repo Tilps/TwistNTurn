@@ -35,7 +35,7 @@ namespace TwistNTurn
                 Index = curIndex;
                 curIndex++;
                 Action = action;
-                Children = new List<UndoNode>();
+                Children = [];
                 LastDoneChild = null;
                 Parent = parent;
                 if (parent != null)
@@ -88,8 +88,7 @@ namespace TwistNTurn
 
         private void OnCanUndoRedoMaybeChanged(EventArgs e)
         {
-            if (CanUndoRedoMaybeChanged != null)
-                CanUndoRedoMaybeChanged(this, e);
+            CanUndoRedoMaybeChanged?.Invoke(this, e);
         }
 
         public bool CanUndo
@@ -121,7 +120,7 @@ namespace TwistNTurn
             current.Children.Remove(toRemove);
             if (current.LastDoneChild == toRemove)
             {
-                current.LastDoneChild = current.Children.Count > 0 ? current.Children[current.Children.Count - 1] : null;
+                current.LastDoneChild = current.Children.Count > 0 ? current.Children[^1] : null;
             }
             if (marked == toRemove)
             {
@@ -177,7 +176,7 @@ namespace TwistNTurn
         {
             get
             {
-                List<IAction> res = new List<IAction>();
+                List<IAction> res = [with(current.Children.Count)];
                 foreach (UndoNode child in current.Children)
                 {
                     if (child.Action != null)
