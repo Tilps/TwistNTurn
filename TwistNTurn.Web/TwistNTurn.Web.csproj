@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="TwistNTurn.Tests" />
     <ProjectReference Include="..\TwistNTurn.Core\TwistNTurn.Core.csproj" />
   </ItemGroup>
 

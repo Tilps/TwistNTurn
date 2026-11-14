@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TwistNTurn.Core\TwistNTurn.Core.csproj" />
+    <ProjectReference Include="..\TwistNTurn.Web\TwistNTurn.Web.csproj" />
   </ItemGroup>
 
 </Project>

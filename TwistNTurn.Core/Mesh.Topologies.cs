@@ -130,6 +130,12 @@ namespace TwistNTurn
                     }
                 }
             }
+            else if (type == MeshType.Hexagonal2)
+            {
+                ConstructHexagonal2(width, height);
+                CreateOpposites();
+                CreateCells();
+            }
             else if (type == MeshType.Hexagonal3)
             {
                 ApproxPointStorage storage = new ApproxPointStorage(0.001f);
@@ -188,7 +194,153 @@ namespace TwistNTurn
                 CreateOpposites();
                 CreateCells();
             }
+            else if (type == MeshType.Hexagonal4)
+            {
+                ConstructHexagonal4(width, height);
+                CreateOpposites();
+                CreateCells();
+            }
             FullClear();
+        }
+
+        private void ConstructHexagonal2(int width, int height)
+        {
+            ApproxPointStorage storage = new ApproxPointStorage(0.001f);
+            List<int> intersects = new List<int>();
+            float hexagonWidth = 1 + 2 * MathF.Cos(MathF.PI / 3f);
+            float hexagonHeight = 2 * MathF.Cos(MathF.PI / 6f);
+            float scalingFactor = 1.5f;
+            float hexagonWidthBit = MathF.Cos(MathF.PI / 3f) * scalingFactor;
+            hexagonHeight *= scalingFactor;
+            hexagonWidth *= scalingFactor;
+
+            for (int i = 0; i < width; i++)
+            {
+                for (int j = 0; j < height; j++)
+                {
+                    float topX = hexagonWidth * i + (j % 2 == 0 ? hexagonWidth / 2 : 0);
+                    float topY = hexagonHeight * j;
+                    AddPoly(storage, intersects,
+                        (topX, topY + hexagonHeight / 2),
+                        (topX + hexagonWidthBit, topY),
+                        (topX + hexagonWidthBit + scalingFactor, topY),
+                        (topX + hexagonWidthBit * 2 + scalingFactor, topY + hexagonHeight / 2),
+                        (topX + hexagonWidthBit + scalingFactor, topY + hexagonHeight),
+                        (topX + hexagonWidthBit, topY + hexagonHeight));
+                }
+            }
+
+            NormalizeCoordinates();
+        }
+
+        private void ConstructHexagonal4(int width, int height)
+        {
+            // Even rows contain (width - 1) clusters that bridge adjacent odd rows, so width < 2 would disconnect or empty the mesh.
+            width = Math.Max(2, width);
+            ApproxPointStorage storage = new ApproxPointStorage(0.001f);
+            List<int> intersects = new List<int>();
+
+            float side = 1.0f;
+            float halfSide = side / 2f;
+            float sqrt3 = MathF.Sqrt(3f);
+            float radius = sqrt3 * halfSide;
+            float unitWidth = 2f * side + 2f * radius;
+            float halfUnitWidth = unitWidth / 2f;
+            float colSpacing = unitWidth - side;
+            float rowSpacing = radius + side + halfSide;
+            float evenRowOffset = unitWidth - halfSide;
+
+            for (int row = 0; row < height; row++)
+            {
+                bool isOddRow = (row % 2 == 1);
+                int rowCount = isOddRow ? width : (width - 1);
+                float rowOffset = isOddRow ? halfUnitWidth : evenRowOffset;
+
+                for (int col = 0; col < rowCount; col++)
+                {
+                    float cx = colSpacing * col + rowOffset;
+                    float cy = rowSpacing * row + halfUnitWidth;
+
+                    var topInner = (cx, cy - side);
+                    var topRightInner = (cx + radius, cy - halfSide);
+                    var bottomRightInner = (cx + radius, cy + halfSide);
+                    var bottomInner = (cx, cy + side);
+                    var bottomLeftInner = (cx - radius, cy + halfSide);
+                    var topLeftInner = (cx - radius, cy - halfSide);
+
+                    var topLeftMid = (cx - radius - halfSide, cy - halfSide - radius);
+                    var topOuterLeft = (cx - halfSide, cy - halfUnitWidth);
+                    var topOuterRight = (cx + halfSide, cy - halfUnitWidth);
+                    var topRightMid = (cx + radius + halfSide, cy - halfSide - radius);
+                    var rightOuterTop = (cx + halfUnitWidth, cy - halfSide);
+                    var rightOuterBottom = (cx + halfUnitWidth, cy + halfSide);
+                    var bottomRightMid = (cx + radius + halfSide, cy + halfSide + radius);
+                    var bottomOuterRight = (cx + halfSide, cy + halfUnitWidth);
+                    var bottomOuterLeft = (cx - halfSide, cy + halfUnitWidth);
+                    var bottomLeftMid = (cx - radius - halfSide, cy + halfSide + radius);
+                    var leftOuterBottom = (cx - halfUnitWidth, cy + halfSide);
+                    var leftOuterTop = (cx - halfUnitWidth, cy - halfSide);
+
+                    AddPoly(storage, intersects, topInner, topRightInner, bottomRightInner, bottomInner, bottomLeftInner, topLeftInner);
+                    AddPoly(storage, intersects, topRightInner, rightOuterTop, rightOuterBottom, bottomRightInner);
+                    AddPoly(storage, intersects, bottomRightInner, rightOuterBottom, bottomRightMid);
+                    AddPoly(storage, intersects, bottomRightInner, bottomRightMid, bottomOuterRight, bottomInner);
+                    AddPoly(storage, intersects, bottomInner, bottomOuterRight, bottomOuterLeft);
+                    AddPoly(storage, intersects, bottomInner, bottomOuterLeft, bottomLeftMid, bottomLeftInner);
+
+                    if (row == 0 || (isOddRow && col == 0))
+                    {
+                        AddPoly(storage, intersects, topInner, topLeftInner, topLeftMid, topOuterLeft);
+                    }
+
+                    if (row == 0)
+                    {
+                        AddPoly(storage, intersects, topOuterLeft, topOuterRight, topInner);
+                    }
+
+                    if (row == 0 || (isOddRow && col == width - 1))
+                    {
+                        AddPoly(storage, intersects, topInner, topOuterRight, topRightMid, topRightInner);
+                        AddPoly(storage, intersects, topRightInner, topRightMid, rightOuterTop);
+                    }
+
+                    if (col == 0)
+                    {
+                        AddPoly(storage, intersects, bottomLeftInner, bottomLeftMid, leftOuterBottom);
+                        AddPoly(storage, intersects, bottomLeftInner, leftOuterBottom, leftOuterTop, topLeftInner);
+                        if (row == 0 || isOddRow)
+                        {
+                            AddPoly(storage, intersects, topLeftInner, leftOuterTop, topLeftMid);
+                        }
+                    }
+                }
+            }
+
+            NormalizeCoordinates();
+        }
+
+        private void NormalizeCoordinates()
+        {
+            if (intersections.Count == 0) return;
+            float minX = float.MaxValue, minY = float.MaxValue;
+            foreach (var inters in intersections)
+            {
+                if (inters.X < minX) minX = inters.X;
+                if (inters.Y < minY) minY = inters.Y;
+            }
+            foreach (var inters in intersections)
+            {
+                inters.X -= minX;
+                inters.Y -= minY;
+            }
+        }
+
+        private void AddPoly(ApproxPointStorage storage, List<int> intersects, params ReadOnlySpan<(float X, float Y)> pts)
+        {
+            intersects.Clear();
+            foreach (var pt in pts)
+                AddIntersection(storage, intersects, pt.X, pt.Y);
+            AddPolyBoundry(intersects);
         }
 
         private void AddPolyBoundry(List<int> intersects)
@@ -197,15 +349,21 @@ namespace TwistNTurn
             {
                 int start = intersects[k];
                 int end = intersects[(k + 1) % intersects.Count];
-                try
-                {
-                    GetEdgeJoining(start, end);
-                }
-                catch
+                if (!HasEdgeJoining(start, end))
                 {
                     AddEdge(start, end);
                 }
             }
+        }
+
+        private bool HasEdgeJoining(int start, int end)
+        {
+            foreach (int edgeIndex in intersections[start].Edges)
+            {
+                if (GetOtherInters(edgeIndex, start) == end)
+                    return true;
+            }
+            return false;
         }
 
         private void AddIntersection(ApproxPointStorage storage, List<int> intersects, float topX, float topY)

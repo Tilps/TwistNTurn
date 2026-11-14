@@ -10,7 +10,9 @@ namespace TwistNTurn.Tests
         [TestMethod]
         [DataRow(MeshType.Square, 5, 5)]
         [DataRow(MeshType.SquareSymmetrical, 6, 6)]
+        [DataRow(MeshType.Hexagonal2, 5, 5)]
         [DataRow(MeshType.Hexagonal3, 3, 3)]
+        [DataRow(MeshType.Hexagonal4, 3, 3)]
         public void PuzzleCodec_RoundTrip_PreservesCluesAndTopology(MeshType type, int width, int height)
         {
             var original = new Mesh(width, height, type);
@@ -95,10 +97,18 @@ namespace TwistNTurn.Tests
         }
 
         [TestMethod]
+        [DataRow("Hexagon 2", MeshType.Hexagonal2)]
+        [DataRow("Hexagon2", MeshType.Hexagonal2)]
+        [DataRow("Hexagonal2", MeshType.Hexagonal2)]
+        [DataRow("hex2", MeshType.Hexagonal2)]
         [DataRow("Hexagon 3", MeshType.Hexagonal3)]
         [DataRow("Hexagon3", MeshType.Hexagonal3)]
         [DataRow("Hexagonal3", MeshType.Hexagonal3)]
         [DataRow("hex3", MeshType.Hexagonal3)]
+        [DataRow("Hexagon 4", MeshType.Hexagonal4)]
+        [DataRow("Hexagon4", MeshType.Hexagonal4)]
+        [DataRow("Hexagonal4", MeshType.Hexagonal4)]
+        [DataRow("hex4", MeshType.Hexagonal4)]
         [DataRow("Square", MeshType.Square)]
         [DataRow("sq", MeshType.Square)]
         [DataRow("Square Symmetrical", MeshType.SquareSymmetrical)]
@@ -111,16 +121,19 @@ namespace TwistNTurn.Tests
         }
 
         [TestMethod]
-        public void PuzzleHelper_Hexagonal3_DefaultSizeAndParse()
+        [DataRow(MeshType.Hexagonal2, 5, 5)]
+        [DataRow(MeshType.Hexagonal3, 3, 3)]
+        [DataRow(MeshType.Hexagonal4, 3, 3)]
+        public void PuzzleHelper_HexagonalTopologies_DefaultSizeAndParse(MeshType type, int expectedW, int expectedH)
         {
-            PuzzleHelper.GetDefaultSize(MeshType.Hexagonal3, out int w, out int h);
-            Assert.AreEqual(3, w);
-            Assert.AreEqual(3, h);
+            PuzzleHelper.GetDefaultSize(type, out int w, out int h);
+            Assert.AreEqual(expectedW, w);
+            Assert.AreEqual(expectedH, h);
 
-            bool ok = PuzzleHelper.ParseSize("3x3", MeshType.Hexagonal3, out int pw, out int ph);
+            bool ok = PuzzleHelper.ParseSize($"{expectedW}x{expectedH}", type, out int pw, out int ph);
             Assert.IsTrue(ok);
-            Assert.AreEqual(3, pw);
-            Assert.AreEqual(3, ph);
+            Assert.AreEqual(expectedW, pw);
+            Assert.AreEqual(expectedH, ph);
         }
     }
 }

@@ -99,6 +99,8 @@ namespace TwistNTurn
             }
         }
 
+        public IAction? CurrentAction => current.Action;
+
         public bool Undo()
         {
             if (current.Action == null || current.Parent == null)
@@ -214,6 +216,8 @@ namespace TwistNTurn
             markNext = true;
             return marked;
         }
+
+        public object? GetMarkedDirect() => marked;
 
         public void SetMarkedDirect(object? prevMarkPos)
         {

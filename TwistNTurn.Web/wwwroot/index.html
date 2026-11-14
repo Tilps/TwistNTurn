@@ -102,6 +102,34 @@
             clearGameState: () => {
                 try { localStorage.removeItem('twistnturn_gamestate'); } catch (_) {}
             },
+            loadSettings: () => {
+                try { return localStorage.getItem('twistnturn_settings'); } catch (_) { return null; }
+            },
+            saveSettings: (json) => {
+                try { localStorage.setItem('twistnturn_settings', json); } catch (_) {}
+            },
+            setWheelMode: (mode) => {
+                window._twistWheelMode = mode || 'zoom';
+            },
+            downloadTextFile: (filename, content) => {
+                try {
+                    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    return true;
+                } catch (_) {
+                    return false;
+                }
+            },
+            triggerPrint: () => {
+                window.print();
+            },
             reloadFromServer: async () => {
                 try {
                     if ('serviceWorker' in navigator) {
@@ -136,6 +164,13 @@
                 } else if (e.ctrlKey && (e.key === 'r' || e.key === 'R')) {
                     e.preventDefault();
                     dotNetRef.invokeMethodAsync('OnShortcut', 'revert');
+                } else if (e.ctrlKey && (e.key === 'h' || e.key === 'H')) {
+                    e.preventDefault();
+                    if (e.shiftKey) {
+                        dotNetRef.invokeMethodAsync('OnShortcut', 'dohint');
+                    } else {
+                        dotNetRef.invokeMethodAsync('OnShortcut', 'hint');
+                    }
                 }
             });
         };
@@ -220,7 +255,7 @@
                     }
 
                     if (svg._dotNetRef) {
-                        svg._dotNetRef.invokeMethodAsync('OnSvgPointerDown', coords.x, coords.y, e.button, e.shiftKey);
+                        svg._dotNetRef.invokeMethodAsync('OnSvgPointerDown', coords.x, coords.y, e.button, e.shiftKey, e.ctrlKey || e.metaKey, e.altKey);
                     }
                 } else if (activePointers.size === 2) {
                     const elapsed = performance.now() - firstTouchTime;
@@ -339,6 +374,10 @@
 
             svg.onwheel = (e) => {
                 e.preventDefault();
+                if (window._twistWheelMode === 'undoredo' && !e.ctrlKey) {
+                    if (svg._dotNetRef) svg._dotNetRef.invokeMethodAsync('OnWheelUndoRedo', e.deltaY);
+                    return;
+                }
                 let factor = e.deltaY < 0 ? 1.15 : 0.87;
                 if (svg._dotNetRef) svg._dotNetRef.invokeMethodAsync('OnWheelZoom', factor);
             };

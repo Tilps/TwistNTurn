@@ -1,5 +1,5 @@
 // TwistNTurn Service Worker
-const CACHE_NAME = 'twistnturn-v3';
+const CACHE_NAME = 'twistnturn-v4';
 
 // Install event: prepare cache
 self.addEventListener('install', event => {

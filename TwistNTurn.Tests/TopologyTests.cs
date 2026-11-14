@@ -12,7 +12,12 @@ namespace TwistNTurn.Tests
         [DataRow(MeshType.Square, 6, 6)]
         [DataRow(MeshType.SquareSymmetrical, 4, 4)]
         [DataRow(MeshType.SquareSymmetrical, 6, 6)]
+        [DataRow(MeshType.Hexagonal2, 4, 4)]
+        [DataRow(MeshType.Hexagonal2, 6, 6)]
         [DataRow(MeshType.Hexagonal3, 3, 3)]
+        [DataRow(MeshType.Hexagonal4, 1, 1)]
+        [DataRow(MeshType.Hexagonal4, 3, 3)]
+        [DataRow(MeshType.Hexagonal4, 4, 4)]
         public void Topologies_ConstructGrid_InitializesValidGraph(MeshType type, int width, int height)
         {
             var mesh = new Mesh(width, height, type);
@@ -103,6 +108,43 @@ namespace TwistNTurn.Tests
             }
 
             Assert.IsTrue(internalIntersWithFourEdges > 0, "Must have internal intersections in 4x4 square mesh");
+        }
+
+        [TestMethod]
+        [DataRow(MeshType.Hexagonal2, 5, 5)]
+        [DataRow(MeshType.Hexagonal4, 3, 3)]
+        public void Hexagonal2And4_InteriorIntersections_AllDegreeFourWithOpposites(MeshType type, int width, int height)
+        {
+            var mesh = new Mesh(width, height, type);
+
+            int interiorCount = 0;
+            for (int i = 0; i < mesh.Intersections.Count; i++)
+            {
+                var inters = mesh.Intersections[i];
+                Assert.IsTrue(inters.Edges.Count >= 2, $"Intersection {i} has degree < 2");
+
+                bool isInterior = true;
+                foreach (int eIdx in inters.Edges)
+                {
+                    int cellCount = mesh.Edges[eIdx].Cells.Count;
+                    Assert.IsTrue(cellCount == 1 || cellCount == 2, $"Edge {eIdx} must belong to 1 or 2 cells");
+                    if (cellCount == 1)
+                        isInterior = false;
+                }
+
+                if (isInterior)
+                {
+                    interiorCount++;
+                    Assert.AreEqual(4, inters.Edges.Count, $"{type} interior intersection {i} should have degree 4");
+                    for (int j = 0; j < inters.Edges.Count; j++)
+                    {
+                        Assert.AreNotEqual(-1, inters.Opposite[j],
+                            $"{type} interior intersection {i} edge {inters.Edges[j]} should have an opposite");
+                    }
+                }
+            }
+
+            Assert.IsTrue(interiorCount > 0, $"{type} must have interior intersections");
         }
     }
 }

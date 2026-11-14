@@ -143,7 +143,9 @@ namespace TwistNTurn
     public enum MeshType
     {
         Square,
+        Hexagonal2,
         Hexagonal3,
+        Hexagonal4,
         SquareSymmetrical,
     }
 
@@ -151,63 +153,43 @@ namespace TwistNTurn
 
     public class ApproxPointStorage
     {
+        private readonly float eps;
+        private readonly float cellSize;
+        private readonly Dictionary<(long, long), List<(float X, float Y, int Index)>> buckets = new();
 
         public ApproxPointStorage(float eps)
         {
-            comparer = new EpsComparer(eps);
-            lookup = new Dictionary<Point, int>(comparer);
+            this.eps = eps;
+            this.cellSize = eps * 2f;
         }
-        EpsComparer comparer;
-
-        Dictionary<Point, int> lookup;
 
         public int Add(float x, float y, int newIndex)
         {
-            Point p = new Point(x, y);
-            if (lookup.ContainsKey(p))
-                return lookup[p];
-            else
-                lookup.Add(p, newIndex);
+            long bx = (long)MathF.Floor(x / cellSize);
+            long by = (long)MathF.Floor(y / cellSize);
+
+            for (long dx = -1; dx <= 1; dx++)
+            {
+                for (long dy = -1; dy <= 1; dy++)
+                {
+                    if (buckets.TryGetValue((bx + dx, by + dy), out var list))
+                    {
+                        foreach (var pt in list)
+                        {
+                            if (MathF.Abs(pt.X - x) <= eps && MathF.Abs(pt.Y - y) <= eps)
+                                return pt.Index;
+                        }
+                    }
+                }
+            }
+
+            if (!buckets.TryGetValue((bx, by), out var cellList))
+            {
+                cellList = new List<(float X, float Y, int Index)>();
+                buckets[(bx, by)] = cellList;
+            }
+            cellList.Add((x, y, newIndex));
             return newIndex;
-        }
-
-        class Point
-        {
-            public Point(float x, float y)
-            {
-                X = x;
-                Y = y;
-            }
-            public float X;
-            public float Y;
-        }
-
-        class EpsComparer : IEqualityComparer<Point>
-        {
-            public EpsComparer(float eps)
-            {
-                this.eps = eps;
-            }
-            float eps;
-
-            private float Round(float coord)
-            {
-                coord += (float) (Math.PI * Math.E);
-                return coord - (coord % eps);
-            }
-
-            public bool Equals(Point? x, Point? y)
-            {
-                if (ReferenceEquals(x, y)) return true;
-                if (x is null || y is null) return false;
-                return Math.Abs(Round(x.X) - Round(y.X)) < eps/2 && Math.Abs(Round(x.Y) - Round(y.Y)) < eps/2;
-            }
-
-            public int GetHashCode(Point? obj)
-            {
-                if (obj is null) return 0;
-                return (Round(obj.X).GetHashCode()*33) ^ Round(obj.Y).GetHashCode();
-            }
         }
     }
     #endregion

@@ -1,4 +1,5 @@
 @page "/"
+@using System.Text.Json
 @inject GameService Game
 @inject IJSRuntime JS
 @implements IDisposable
@@ -35,22 +36,43 @@
                 <button class="btn btn-secondary action-btn" @onclick="Game.RevertToFix" disabled="@(Game.CurrentMesh == null || Game.IsGenerating)" title="Revert to Checkpoint (Ctrl+R)">
                     Revert
                 </button>
+                <button class="btn btn-secondary action-btn" @onclick="RequestHint" disabled="@(Game.CurrentMesh == null || Game.IsGenerating || Game.IsSolved)" title="Highlight a logical deduction edge without revealing whether it is a line or cross (Ctrl+H)">
+                    💡<span class="btn-text"> Hint</span>
+                </button>
+                <button class="btn btn-secondary action-btn" @onclick="RequestDoHint" disabled="@(Game.CurrentMesh == null || Game.IsGenerating || Game.IsSolved)" title="Highlight AND apply a logical next move (Ctrl+Shift+H)">
+                    ⚡<span class="btn-text"> Do Hint</span>
+                </button>
+                <button class="btn btn-danger-outline action-btn" @onclick="PromptResetPuzzle" disabled="@(Game.CurrentMesh == null || Game.IsGenerating)" title="Clear board and restart current puzzle">
+                    🔄<span class="btn-text"> Reset</span>
+                </button>
+                <button class="btn btn-secondary action-btn" @onclick="PromptSolvePuzzle" disabled="@(Game.CurrentMesh == null || Game.IsGenerating || Game.IsSolved)" title="Reveal full solution">
+                    ✨<span class="btn-text"> Solve</span>
+                </button>
             </div>
 
             <div class="action-meta-group">
-                <div class="timer-box" title="Elapsed Time">
-                    @(Game.ElapsedTime.ToString(@"mm\:ss"))
-                </div>
+                @if (Game.ShowClock)
+                {
+                    <div class="timer-box" title="Elapsed Time">
+                        @(Game.ElapsedTime.ToString(@"mm\:ss"))
+                    </div>
+                }
 
-                <!-- Desktop Utilities (Share, Theme, Help, Reload) -->
+                <!-- Desktop Utilities (Share, Files, Settings, Theme, Help, Reload) -->
                 <div class="desktop-utility-group">
                     <button class="btn btn-secondary" @onclick="SharePuzzle" disabled="@(Game.CurrentMesh == null || Game.IsGenerating)" title="Copy shareable link to this puzzle">
                         🔗 Share
                     </button>
+                    <button class="btn btn-secondary" @onclick="OpenFilesModal" disabled="@Game.IsGenerating" title="Import, Export, or Print puzzle">
+                        📁 Files
+                    </button>
+                    <button class="btn btn-secondary" @onclick="OpenSettings" title="Game Settings &amp; Auto-Move">
+                        ⚙️ Settings
+                    </button>
                     <button class="btn btn-secondary" @onclick="ToggleTheme" title="Toggle Dark/Light Mode">
                         @(isDarkMode ? "☀️" : "🌙")
                     </button>
-                    <button class="btn btn-secondary" @onclick="() => showHelpModal = true" title="Instructions & Rules">
+                    <button class="btn btn-secondary" @onclick="() => showHelpModal = true" title="Instructions &amp; Rules">
                         Help
                     </button>
                     <button class="btn btn-secondary" @onclick="ReloadFromServer" title="Reload newest version from server">
@@ -78,7 +100,9 @@
                     <select class="select-input" value="@selectedType" @onchange="OnTypeChanged" disabled="@Game.IsGenerating">
                         <option value="Square">Square</option>
                         <option value="SquareSymmetrical">Square Symmetrical</option>
+                        <option value="Hexagonal2">Hexagon 2</option>
                         <option value="Hexagonal3">Hexagon 3</option>
+                        <option value="Hexagonal4">Hexagon 4</option>
                     </select>
                 </div>
 
@@ -113,11 +137,11 @@
 
             <div class="controls-group">
                 <label class="checkbox-label" title="Disallow moves that cause obvious rule violations (degree > 2 or contradictory turns)">
-                    <input type="checkbox" @bind="Game.DisallowFalseMove" />
+                    <input type="checkbox" @bind="Game.DisallowFalseMove" @bind:after="OnSettingsChangedAsync" />
                     <span>Restrict invalid</span>
                 </label>
                 <label class="checkbox-label" title="Enable cell coloring for loop parity marking (when off, clicking inside routes to nearest edge)">
-                    <input type="checkbox" @bind="Game.ShowCellColors" />
+                    <input type="checkbox" @bind="Game.ShowCellColors" @bind:after="OnSettingsChangedAsync" />
                     <span>Cell shading</span>
                 </label>
             </div>
@@ -127,10 +151,16 @@
                 <button class="btn btn-secondary" @onclick="SharePuzzle" disabled="@(Game.CurrentMesh == null || Game.IsGenerating)" title="Copy shareable link to this puzzle">
                     🔗 Share
                 </button>
+                <button class="btn btn-secondary" @onclick="OpenFilesModal" disabled="@Game.IsGenerating" title="Import, Export, or Print puzzle">
+                    📁 Files
+                </button>
+                <button class="btn btn-secondary" @onclick="OpenSettings" title="Game Settings &amp; Auto-Move">
+                    ⚙️ Settings
+                </button>
                 <button class="btn btn-secondary" @onclick="ToggleTheme" title="Toggle Dark/Light Mode">
                     @(isDarkMode ? "☀️ Light" : "🌙 Dark")
                 </button>
-                <button class="btn btn-secondary" @onclick="() => showHelpModal = true" title="Instructions & Rules">
+                <button class="btn btn-secondary" @onclick="() => showHelpModal = true" title="Instructions &amp; Rules">
                     Help
                 </button>
                 <button class="btn btn-secondary" @onclick="ReloadFromServer" title="Reload newest version from server">
@@ -209,6 +239,7 @@
 
             float vertexRadius = 3.5f;
             float pearlRadius = 11.0f;
+            EdgeState[]? vsEdgeStates = Game.CurrentVisualSolveStep?.EdgeStates;
 
             <svg id="game-board-svg" class="svg-board" viewBox="@($"{effX:F1} {effY:F1} {curW:F1} {curH:F1}")" preserveAspectRatio="xMidYMid meet">
                 <!-- Layer 1: Cell backgrounds (for interior/exterior shading) -->
@@ -229,17 +260,39 @@
                     }
                 </g>
 
-                <!-- Layer 2: Empty Grid Edges (faint background guidelines) -->
+                <!-- Layer 2: Empty Grid Edges (faint background guidelines + loop grouping colors) -->
                 <g class="empty-edges-layer" style="pointer-events: none;">
                     @for (int e = 0; e < mesh.Edges.Count; e++)
                     {
-                        var edge = mesh.Edges[e];
-                        if (edge.State == EdgeState.Empty)
+                        int edgeIdx = e;
+                        var edge = mesh.Edges[edgeIdx];
+                        EdgeState displayState = vsEdgeStates != null && edgeIdx < vsEdgeStates.Length ? vsEdgeStates[edgeIdx] : edge.State;
+                        if (displayState == EdgeState.Empty)
                         {
                             mesh.GetEdgeExtent(edge, out float rawX1, out float rawY1, out float rawX2, out float rawY2);
                             float x1 = rawX1 * S, y1 = rawY1 * S, x2 = rawX2 * S, y2 = rawY2 * S;
-                            <line x1="@x1" y1="@y1" x2="@x2" y2="@y2"
-                                  class="edge-empty"
+                            if (vsEdgeStates == null && Game.ShowEdgeColors && edge.Color != 0)
+                            {
+                                string? dashArray = edge.Color < 0 ? "5 4" : null;
+                                <line x1="@x1" y1="@y1" x2="@x2" y2="@y2"
+                                      class="edge-grouped"
+                                      stroke="@GetEdgeGroupColor(edge.Color)"
+                                      stroke-dasharray="@dashArray"
+                                      style="pointer-events: none;" />
+                            }
+                            else
+                            {
+                                <line x1="@x1" y1="@y1" x2="@x2" y2="@y2"
+                                      class="edge-empty"
+                                      style="pointer-events: none;" />
+                            }
+                        }
+
+                        if (vsEdgeStates == null && Game.PendingGroupEdgeIndex == edgeIdx)
+                        {
+                            mesh.GetEdgeExtent(edge, out float px1, out float py1, out float px2, out float py2);
+                            <line x1="@(px1 * S)" y1="@(py1 * S)" x2="@(px2 * S)" y2="@(py2 * S)"
+                                  class="edge-group-pending"
                                   style="pointer-events: none;" />
                         }
                     }
@@ -251,19 +304,20 @@
                     {
                         int edgeIdx = e;
                         var edge = mesh.Edges[edgeIdx];
-                        if (edge.State != EdgeState.Empty)
+                        EdgeState displayState = vsEdgeStates != null && edgeIdx < vsEdgeStates.Length ? vsEdgeStates[edgeIdx] : edge.State;
+                        if (displayState != EdgeState.Empty)
                         {
                             mesh.GetEdgeExtent(edge, out float rawX1, out float rawY1, out float rawX2, out float rawY2);
                             float x1 = rawX1 * S, y1 = rawY1 * S, x2 = rawX2 * S, y2 = rawY2 * S;
-                            bool isMarked = Game.MarkedEdges.Contains(edgeIdx);
+                            bool isMarked = vsEdgeStates == null && Game.MarkedEdges.Contains(edgeIdx);
 
-                            if (edge.State == EdgeState.Filled)
+                            if (displayState == EdgeState.Filled)
                             {
                                 <line x1="@x1" y1="@y1" x2="@x2" y2="@y2"
                                       class="@(isMarked ? "edge-filled-marked" : "edge-filled")"
                                       style="pointer-events: none;" />
                             }
-                            else if (edge.State == EdgeState.Excluded)
+                            else if (displayState == EdgeState.Excluded)
                             {
                                 float mx = (x1 + x2) / 2.0f;
                                 float my = (y1 + y2) / 2.0f;
@@ -319,7 +373,96 @@
                         }
                     }
                 </g>
+
+                <!-- Layer 5: Transient Invalid & Hint Highlights -->
+                <g class="highlights-layer" style="pointer-events: none;">
+                    @if (Game.InvalidEdgeIndex is int invIdx && invIdx >= 0 && invIdx < mesh.Edges.Count)
+                    {
+                        mesh.GetEdgeExtent(mesh.Edges[invIdx], out float rx1, out float ry1, out float rx2, out float ry2);
+                        <line x1="@(rx1 * S)" y1="@(ry1 * S)" x2="@(rx2 * S)" y2="@(ry2 * S)"
+                              class="edge-invalid-highlight"
+                              style="pointer-events: none;" />
+                    }
+
+                    @if (Game.HintEdgeIndex is int hintIdx && hintIdx >= 0 && hintIdx < mesh.Edges.Count)
+                    {
+                        mesh.GetEdgeExtent(mesh.Edges[hintIdx], out float rx1, out float ry1, out float rx2, out float ry2);
+                        float hx1 = rx1 * S, hy1 = ry1 * S, hx2 = rx2 * S, hy2 = ry2 * S;
+                        @if (!Game.HintIsApplied)
+                        {
+                            <line x1="@hx1" y1="@hy1" x2="@hx2" y2="@hy2"
+                                  class="edge-hint-neutral"
+                                  style="pointer-events: none;" />
+                        }
+                        else if (Game.HintTargetState == EdgeState.Filled)
+                        {
+                            <line x1="@hx1" y1="@hy1" x2="@hx2" y2="@hy2"
+                                  class="edge-hint-highlight"
+                                  style="pointer-events: none;" />
+                        }
+                        else if (Game.HintTargetState == EdgeState.Excluded)
+                        {
+                            float mx = (hx1 + hx2) / 2.0f;
+                            float my = (hy1 + hy2) / 2.0f;
+                            float edx = hx2 - hx1;
+                            float edy = hy2 - hy1;
+                            float elen = MathF.Sqrt(edx * edx + edy * edy);
+                            if (elen < 1e-4f) elen = 1.0f;
+                            float ux = edx / elen;
+                            float uy = edy / elen;
+                            float vx = -uy;
+                            float vy = ux;
+                            float r = 5.5f;
+                            float o1x = r * (ux + vx), o1y = r * (uy + vy);
+                            float o2x = r * (ux - vx), o2y = r * (uy - vy);
+                            <line x1="@(mx - o1x)" y1="@(my - o1y)" x2="@(mx + o1x)" y2="@(my + o1y)"
+                                  class="edge-hint-cross"
+                                  style="pointer-events: none;" />
+                            <line x1="@(mx - o2x)" y1="@(my - o2y)" x2="@(mx + o2x)" y2="@(my + o2y)"
+                                  class="edge-hint-cross"
+                                  style="pointer-events: none;" />
+                        }
+                    }
+                </g>
             </svg>
+
+            @if (Game.IsVisualSolving && Game.CurrentVisualSolveStep is { } vsStep)
+            {
+                string badgeClass = vsStep.IsBacktrack ? "visual-solver-status backtrack" : (vsStep.IsBranching ? "visual-solver-status branch" : "visual-solver-status");
+                <div class="visual-solver-bar" role="region" aria-label="Visual Solver Playback">
+                    <div class="visual-solver-header">
+                        <span class="visual-solver-step">Step @(Game.VisualSolveStepIndex + 1) / @Game.VisualSolveTotalSteps</span>
+                        <span class="@badgeClass">@vsStep.Status</span>
+                    </div>
+                    <div class="visual-solver-controls">
+                        <button class="btn btn-secondary visual-solver-btn" @onclick="VisualSolveStart" disabled="@(Game.VisualSolveStepIndex <= 0)" title="Jump to start">⏮</button>
+                        <button class="btn btn-secondary visual-solver-btn" @onclick="VisualSolvePrev" disabled="@(Game.VisualSolveStepIndex <= 0)" title="Previous step">◀</button>
+                        <button class="btn btn-primary visual-solver-btn" @onclick="ToggleVisualSolvePlay" title="@(isVisualSolvePlaying ? "Pause" : "Play")">
+                            @(isVisualSolvePlaying ? "⏸ Pause" : "▶ Play")
+                        </button>
+                        <button class="btn btn-secondary visual-solver-btn" @onclick="VisualSolveNext" disabled="@(Game.VisualSolveStepIndex >= Game.VisualSolveTotalSteps - 1)" title="Next step">▶</button>
+
+                        <input type="range"
+                               class="visual-solver-slider"
+                               min="0"
+                               max="@(Math.Max(0, Game.VisualSolveTotalSteps - 1))"
+                               value="@Game.VisualSolveStepIndex"
+                               @oninput="OnVisualSolveStepInput"
+                               aria-label="Solver playback step" />
+
+                        <select class="select-input visual-solver-speed" @bind="visualSolveSpeedMs" aria-label="Playback speed" title="Playback Speed">
+                            <option value="450">0.5x</option>
+                            <option value="220">1x</option>
+                            <option value="110">2x</option>
+                            <option value="45">5x</option>
+                            <option value="15">Max</option>
+                        </select>
+
+                        <button class="btn btn-success visual-solver-btn" @onclick="ApplyVisualSolve" title="Apply complete solution to the board">✓ Apply</button>
+                        <button class="btn btn-secondary visual-solver-btn" @onclick="DismissVisualSolve" title="Exit visual solver and return to your board">✕</button>
+                    </div>
+                </div>
+            }
 
             <!-- Floating Pan & Zoom Controls -->
             <div class="zoom-hud">
@@ -338,7 +481,9 @@
             <span class="shortcut-badge">Ctrl+Y</span> Redo &bull;
             <span class="shortcut-badge">Ctrl+F</span> Fix &bull;
             <span class="shortcut-badge">Ctrl+U</span> Unfix &bull;
-            <span class="shortcut-badge">Ctrl+R</span> Revert
+            <span class="shortcut-badge">Ctrl+R</span> Revert &bull;
+            <span class="shortcut-badge">Ctrl+H</span> Hint &bull;
+            <span class="shortcut-badge">Ctrl+Shift+H</span> Do Hint
         </div>
         <div>
             Left-Click / Drag: Draw line &bull; Right-Click / Drag: Mark X &bull; Shift: Reverse cycle &bull; Fixed edges locked &bull; Two fingers / Wheel: Pan & Zoom
@@ -350,6 +495,17 @@
 {
     <div class="toast-notification">
         Link copied to clipboard!
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(Game.HintMessage))
+{
+    <div class="hint-toast-notification">
+        <div class="hint-toast-content">
+            <span class="hint-toast-icon">💡</span>
+            <span class="hint-toast-text">@Game.HintMessage</span>
+        </div>
+        <button class="hint-toast-close" @onclick="Game.ClearHint" title="Dismiss hint">✕</button>
     </div>
 }
 
@@ -407,10 +563,246 @@
                     <li><strong>Fix (Ctrl+F)</strong>: Save a checkpoint (current moves turn green and become locked against accidental changes).</li>
                     <li><strong>Unfix (Ctrl+U)</strong>: Clear checkpoint and unlock fixed edges.</li>
                     <li><strong>Revert (Ctrl+R)</strong>: Rollback all moves made after your last checkpoint.</li>
+                    <li><strong>Hint (Ctrl+H) &amp; Do Hint (Ctrl+Shift+H)</strong>: Hint highlights a logically deducible edge without spoiling whether it is a line or X; Do Hint applies it and explains why.</li>
+                    <li><strong>Reset &amp; Solve</strong>: Reset clears your moves and restarts the current puzzle; Solve lets you reveal the full solution or step through it visually.</li>
+                    <li><strong>Settings &amp; Auto-Move</strong>: Enable cascading auto-move deductions, Auto-start, scroll-wheel Undo/Redo, loop grouping (Alt/Ctrl+Click), or analyze puzzle difficulty.</li>
+                    <li><strong>Files &amp; Print</strong>: Import/export <code>.twist</code>, ASCII grid, pearl descriptors, or print a clean sheet.</li>
                 </ul>
             </div>
             <div class="modal-actions">
                 <button class="btn btn-primary" @onclick="() => showHelpModal = false">Got it!</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Solve Confirmation Modal -->
+@if (showSolveModal)
+{
+    <div class="modal-backdrop" @onclick="() => showSolveModal = false">
+        <div class="modal-card" @onclick:stopPropagation="true">
+            <h2 class="modal-title">Reveal Solution?</h2>
+            <div class="modal-body" style="text-align: center;">
+                <p>Watch the solver step through logical deductions and backtracking, or apply the complete solution immediately. (You can still Undo afterward.)</p>
+            </div>
+            <div class="modal-actions" style="justify-content: center; flex-wrap: wrap;">
+                <button class="btn btn-secondary" @onclick="() => showSolveModal = false">Cancel</button>
+                <button class="btn btn-primary" @onclick="StartVisualSolve">👁️ Watch Solver</button>
+                <button class="btn btn-danger" @onclick="ConfirmSolvePuzzle">Solve Instantly</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Reset Confirmation Modal -->
+@if (showResetModal)
+{
+    <div class="modal-backdrop" @onclick="() => showResetModal = false">
+        <div class="modal-card" @onclick:stopPropagation="true">
+            <h2 class="modal-title">Reset Puzzle?</h2>
+            <div class="modal-body" style="text-align: center;">
+                <p>This will clear all edges, crosses, and checkpoints on the current puzzle.</p>
+            </div>
+            <div class="modal-actions" style="justify-content: center;">
+                <button class="btn btn-secondary" @onclick="() => showResetModal = false">Cancel</button>
+                <button class="btn btn-danger" @onclick="ConfirmResetPuzzle">Reset Board</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Settings Modal -->
+@if (showSettingsModal)
+{
+    <div class="modal-backdrop" @onclick="() => showSettingsModal = false">
+        <div class="modal-card settings-modal-card" @onclick:stopPropagation="true">
+            <h2 class="modal-title">Settings</h2>
+            <div class="modal-body settings-modal-body">
+                <div class="settings-section">
+                    <h3 class="settings-section-title">Gameplay &amp; Auto-Move</h3>
+
+                    <div class="settings-row">
+                        <label class="settings-label" for="setting-automove">
+                            <span>Auto-move deductions</span>
+                            <small class="settings-hint">Automatically fill forced neighbor deductions after each move</small>
+                        </label>
+                        <select id="setting-automove" class="select-input" @bind="Game.AutoMoveLevel" @bind:after="OnSettingsChangedAsync">
+                            <option value="0">Off (Default)</option>
+                            <option value="1">Level 1 (Immediate)</option>
+                            <option value="2">Level 2 (2-Step Cascade)</option>
+                            <option value="3">Level 3 (Deep Cascade)</option>
+                            <option value="4">Full Cascade</option>
+                        </select>
+                    </div>
+
+                    <label class="settings-check-row">
+                        <input type="checkbox" @bind="Game.AutoMoveConsiderMultipleLoops" @bind:after="OnSettingsChangedAsync" />
+                        <span>Avoid closing a partial loop prematurely in auto-move</span>
+                    </label>
+
+                    <label class="settings-check-row">
+                        <input type="checkbox" @bind="Game.AutoMoveUseColoring" @bind:after="OnSettingsChangedAsync" />
+                        <span>Use loop coloring deductions in auto-move</span>
+                    </label>
+
+                    <label class="settings-check-row">
+                        <input type="checkbox" @bind="Game.AutoStart" @bind:after="OnSettingsChangedAsync" />
+                        <span>Auto-start opening pearl deductions on new &amp; reset puzzles</span>
+                    </label>
+
+                    <label class="settings-check-row">
+                        <input type="checkbox" @bind="Game.DisallowFalseMove" @bind:after="OnSettingsChangedAsync" />
+                        <span>Restrict invalid moves</span>
+                    </label>
+
+                    <label class="settings-check-row">
+                        <input type="checkbox" @bind="Game.ShowCellColors" @bind:after="OnSettingsChangedAsync" />
+                        <span>Enable cell shading</span>
+                    </label>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="settings-section-title">Controls &amp; Display</h3>
+
+                    <div class="settings-row">
+                        <label class="settings-label" for="setting-wheel">
+                            <span>Mouse wheel</span>
+                            <small class="settings-hint">Ctrl + Wheel always zooms in Undo / Redo mode</small>
+                        </label>
+                        <select id="setting-wheel" class="select-input" @bind="Game.WheelMode" @bind:after="OnSettingsChangedAsync">
+                            <option value="@MouseWheelMode.Zoom">Zoom In / Out (Default)</option>
+                            <option value="@MouseWheelMode.UndoRedo">Undo / Redo</option>
+                        </select>
+                    </div>
+
+                    <label class="settings-check-row">
+                        <input type="checkbox" @bind="Game.ShowClock" @bind:after="OnSettingsChangedAsync" />
+                        <span>Show elapsed timer</span>
+                    </label>
+
+                    <label class="settings-check-row desktop-only-setting" title="Desktop shortcut: Alt+Click two edges to link same loop color, Ctrl+Click to link opposite parity">
+                        <input type="checkbox" @bind="Game.ShowEdgeColors" @bind:after="OnSettingsChangedAsync" />
+                        <span>Desktop loop grouping (Alt+Click same, Ctrl+Click opposite)</span>
+                    </label>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Puzzle Inspector (On-Demand)</span>
+                            <small class="settings-hint">Checks solvability tier &amp; pearl clue density without background CPU overhead</small>
+                        </div>
+                        <button class="btn btn-secondary" @onclick="AnalyzePuzzle" disabled="@(Game.CurrentMesh == null || Game.IsGenerating)">
+                            🔍 Analyze Puzzle
+                        </button>
+                    </div>
+
+                    @if (Game.CurrentAnalysis is { } analysis)
+                    {
+                        double density = analysis.TotalIntersections > 0 ? (double)analysis.ClueCount / analysis.TotalIntersections : 0;
+                        <div class="analysis-card">
+                            <div><strong>Status:</strong> @analysis.SolveStatus</div>
+                            <div><strong>Rating:</strong> @analysis.TechniqueTier</div>
+                            <div><strong>Branch Depth:</strong> @analysis.BranchDepth</div>
+                            <div><strong>Pearls:</strong> @analysis.WhitePearls white, @analysis.BlackPearls black (@analysis.ClueCount / @analysis.TotalIntersections intersections, @($"{density:P0}")) &bull; @analysis.EdgeCount edges</div>
+                        </div>
+                    }
+                </div>
+
+                <details class="settings-advanced">
+                    <summary class="settings-advanced-summary">Generator Tuning (Advanced)</summary>
+                    <div class="settings-advanced-content">
+                        <p class="settings-hint">Changes take effect when generating a new puzzle.</p>
+
+                        <div class="settings-range-row">
+                            <div class="settings-range-header">
+                                <label for="setting-length">Target loop length</label>
+                                <span class="settings-value-badge">@($"{Game.GenerateLengthFraction:P0}")</span>
+                            </div>
+                            <input id="setting-length" type="range" min="0.25" max="0.75" step="0.05"
+                                   @bind="Game.GenerateLengthFraction" @bind:event="oninput" @bind:after="OnSettingsChangedAsync" />
+                        </div>
+
+                        <div class="settings-range-row">
+                            <div class="settings-range-header">
+                                <label for="setting-boring">Trivial clue cap (boring fraction)</label>
+                                <span class="settings-value-badge">@($"{Game.GenerateBoringFraction:P0}")</span>
+                            </div>
+                            <input id="setting-boring" type="range" min="0.00" max="0.20" step="0.01"
+                                   @bind="Game.GenerateBoringFraction" @bind:event="oninput" @bind:after="OnSettingsChangedAsync" />
+                        </div>
+
+                        <div class="settings-row">
+                            <label class="settings-label" for="setting-solver">Generator solver mode</label>
+                            <select id="setting-solver" class="select-input" @bind="Game.SolverModeOverride" @bind:after="OnSettingsChangedAsync">
+                                <option value="@GeneratorSolverMode.Auto">Auto (By Difficulty)</option>
+                                <option value="@GeneratorSolverMode.Iterative">Iterative</option>
+                                <option value="@GeneratorSolverMode.Recursive">Recursive</option>
+                            </select>
+                        </div>
+                    </div>
+                </details>
+            </div>
+            <div class="modal-actions settings-modal-actions">
+                <button class="btn btn-secondary" @onclick="ResetSettingsToDefaultsAsync">Reset Defaults</button>
+                <button class="btn btn-primary" @onclick="() => showSettingsModal = false">Done</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Import / Export & Print Modal -->
+@if (showFilesModal)
+{
+    <div class="modal-backdrop" @onclick="() => showFilesModal = false">
+        <div class="modal-card settings-modal-card" @onclick:stopPropagation="true">
+            <h2 class="modal-title">Import, Export &amp; Print</h2>
+            <div class="modal-body settings-modal-body">
+                <div class="settings-section">
+                    <h3 class="settings-section-title">Export &amp; Print</h3>
+                    <div class="files-btn-grid">
+                        <button class="btn btn-secondary" @onclick='() => DownloadExportAsync("twist")' disabled="@(Game.CurrentMesh == null)">💾 Download .twist</button>
+                        <button class="btn btn-secondary" @onclick='() => CopyExportAsync("twist")' disabled="@(Game.CurrentMesh == null)">📋 Copy .twist</button>
+                        @if (Game.CanExportSquareFormats)
+                        {
+                            <button class="btn btn-secondary" @onclick='() => DownloadExportAsync("ascii")'>📝 Download .txt (ASCII)</button>
+                            <button class="btn btn-secondary" @onclick='() => CopyExportAsync("ascii")'>📋 Copy ASCII</button>
+                            <button class="btn btn-secondary" @onclick='() => CopyExportAsync("pearl-desc")'>📋 Copy Pearl Code</button>
+                        }
+                        <button class="btn btn-primary" @onclick="PrintBoardAsync" disabled="@(Game.CurrentMesh == null)">🖨️ Print Board</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="settings-section-title">Import Puzzle</h3>
+                    <p class="settings-hint">Supports <code>.twist</code>, ASCII grids (<code>+</code>, <code>O</code>, <code>*</code>, <code>-</code>, <code>|</code>), Pearl descriptors (<code>11x11:...</code>), or share links.</p>
+
+                    <label class="files-file-row">
+                        <span>Load from file:</span>
+                        <InputFile OnChange="OnImportFileSelected" accept=".twist,.txt" />
+                    </label>
+
+                    <textarea class="files-textarea"
+                              rows="5"
+                              @bind="importText"
+                              placeholder="Paste puzzle file contents, Pearl code, ASCII grid, or share link here..."></textarea>
+
+                    <div class="files-import-actions">
+                        <button class="btn btn-primary" @onclick="ImportPuzzleFromText" disabled="@string.IsNullOrWhiteSpace(importText)">
+                            Import Puzzle
+                        </button>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(filesStatusMessage))
+                {
+                    <div class="files-feedback @(filesStatusIsError ? "error" : "success")">
+                        @filesStatusMessage
+                    </div>
+                }
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="() => showFilesModal = false">Close</button>
             </div>
         </div>
     </div>
@@ -422,10 +814,36 @@
     private string selectedType = "Square";
     private bool showVictoryModal = true;
     private bool showHelpModal = false;
+    private bool showSolveModal = false;
+    private bool showResetModal = false;
+    private bool showSettingsModal = false;
+    private bool showFilesModal = false;
+    private string importText = string.Empty;
+    private string? filesStatusMessage;
+    private bool filesStatusIsError = false;
     private bool isDarkMode = false;
     private bool showShareToast = false;
     private bool isMenuOpen = false;
     private bool hasPwaUpdate = false;
+
+    private bool isVisualSolvePlaying = false;
+    private int visualSolveSpeedMs = 220;
+    private Timer? visualSolveTimer;
+
+    private const double WheelUndoRedoStepThreshold = 40.0;
+    private double wheelDeltaAccumulator = 0;
+
+    private static readonly string[] EdgeGroupPalette =
+    [
+        "#2563eb",
+        "#d97706",
+        "#059669",
+        "#db2777",
+        "#7c3aed",
+        "#0891b2",
+        "#dc2626",
+        "#65a30d"
+    ];
 
     private float zoomScale = 1.0f;
     private float panX = 0f;
@@ -469,6 +887,23 @@
                 isDarkMode = (theme == "dark");
             }
             catch {}
+
+            // Restore persisted user preferences before loading/generating puzzle
+            try
+            {
+                string? settingsJson = await JS.InvokeAsync<string?>("twistHelpers.loadSettings");
+                if (!string.IsNullOrEmpty(settingsJson))
+                {
+                    var prefs = JsonSerializer.Deserialize(settingsJson, TwistJsonContext.Default.UserPreferences);
+                    if (prefs != null)
+                        Game.ApplyPreferences(prefs);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to restore settings: {ex.Message}");
+            }
+            await SyncWheelModeAsync();
 
             bool loaded = false;
             // 1. Check URL hash for shared puzzle (#p=... or #puzzle=...)
@@ -545,9 +980,17 @@
 
     private void HandleStateChanged()
     {
+        if (!Game.IsVisualSolving && isVisualSolvePlaying)
+        {
+            StopVisualSolvePlayback();
+        }
+
         if (Game.IsSolved && !lastSolvedState)
         {
-            showVictoryModal = true;
+            if (!Game.WasAutoSolved)
+            {
+                showVictoryModal = true;
+            }
         }
         lastSolvedState = Game.IsSolved;
 
@@ -559,7 +1002,7 @@
                 var state = Game.ExportState();
                 if (state != null)
                 {
-                    string json = System.Text.Json.JsonSerializer.Serialize(state);
+                    string json = JsonSerializer.Serialize(state, TwistJsonContext.Default.SavedGameState);
                     _ = JS.InvokeVoidAsync("twistHelpers.saveGameState", json);
                 }
             }
@@ -577,6 +1020,136 @@
         isMenuOpen = false;
         await GeneratePuzzle();
     }
+
+    private void PromptResetPuzzle()
+    {
+        if (Game.CurrentMesh == null || Game.IsGenerating) return;
+        if (Game.CanUndo || Game.MarkedEdges.Count > 0)
+        {
+            showResetModal = true;
+        }
+        else
+        {
+            Game.ResetCurrentPuzzle();
+        }
+    }
+
+    private void ConfirmResetPuzzle()
+    {
+        showResetModal = false;
+        showVictoryModal = false;
+        lastSolvedState = false;
+        Game.ResetCurrentPuzzle();
+    }
+
+    private void PromptSolvePuzzle()
+    {
+        if (Game.CurrentMesh == null || Game.IsGenerating || Game.IsSolved) return;
+        showSolveModal = true;
+    }
+
+    private void ConfirmSolvePuzzle()
+    {
+        showSolveModal = false;
+        Game.SolvePuzzle();
+    }
+
+    private void StartVisualSolve()
+    {
+        showSolveModal = false;
+        StopVisualSolvePlayback();
+        if (Game.StartVisualSolve())
+        {
+            StartVisualSolvePlayback();
+        }
+    }
+
+    private void StartVisualSolvePlayback()
+    {
+        StopVisualSolvePlayback();
+        if (!Game.IsVisualSolving || Game.VisualSolveStepIndex >= Game.VisualSolveTotalSteps - 1)
+            return;
+
+        isVisualSolvePlaying = true;
+        int delay = Math.Clamp(visualSolveSpeedMs, 15, 2000);
+        visualSolveTimer = new Timer(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                if (!isVisualSolvePlaying || !Game.StepVisualSolveForward())
+                {
+                    StopVisualSolvePlayback();
+                    StateHasChanged();
+                }
+            });
+        }, null, delay, delay);
+    }
+
+    private void StopVisualSolvePlayback()
+    {
+        isVisualSolvePlaying = false;
+        visualSolveTimer?.Dispose();
+        visualSolveTimer = null;
+    }
+
+    private void ToggleVisualSolvePlay()
+    {
+        if (isVisualSolvePlaying)
+        {
+            StopVisualSolvePlayback();
+        }
+        else
+        {
+            if (Game.VisualSolveStepIndex >= Game.VisualSolveTotalSteps - 1)
+            {
+                Game.SetVisualSolveStep(0);
+            }
+            StartVisualSolvePlayback();
+        }
+    }
+
+    private void VisualSolveStart()
+    {
+        StopVisualSolvePlayback();
+        Game.SetVisualSolveStep(0);
+    }
+
+    private void VisualSolvePrev()
+    {
+        StopVisualSolvePlayback();
+        Game.StepVisualSolveBackward();
+    }
+
+    private void VisualSolveNext()
+    {
+        StopVisualSolvePlayback();
+        Game.StepVisualSolveForward();
+    }
+
+    private void OnVisualSolveStepInput(ChangeEventArgs e)
+    {
+        StopVisualSolvePlayback();
+        if (int.TryParse(e.Value?.ToString(), out int step))
+        {
+            Game.SetVisualSolveStep(step);
+        }
+    }
+
+    private void ApplyVisualSolve()
+    {
+        StopVisualSolvePlayback();
+        Game.ApplyVisualSolveSolution();
+    }
+
+    private void DismissVisualSolve()
+    {
+        StopVisualSolvePlayback();
+        Game.DismissVisualSolve();
+    }
+
+    private void RequestHint() => Game.RequestHint(applyMove: false);
+
+    private void RequestDoHint() => Game.RequestHint(applyMove: true);
 
     private async Task GeneratePuzzle()
     {
@@ -666,6 +1239,194 @@
     {
         zoomScale = Math.Clamp(zoomScale * (float)factor, 0.4f, 8.0f);
         StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnWheelUndoRedo(double deltaY)
+    {
+        if (Game.IsGenerating || Game.CurrentMesh == null || deltaY == 0)
+            return;
+
+        if ((wheelDeltaAccumulator > 0 && deltaY < 0) || (wheelDeltaAccumulator < 0 && deltaY > 0))
+            wheelDeltaAccumulator = 0;
+
+        wheelDeltaAccumulator += deltaY;
+
+        while (wheelDeltaAccumulator >= WheelUndoRedoStepThreshold)
+        {
+            wheelDeltaAccumulator -= WheelUndoRedoStepThreshold;
+            Game.Undo();
+        }
+
+        while (wheelDeltaAccumulator <= -WheelUndoRedoStepThreshold)
+        {
+            wheelDeltaAccumulator += WheelUndoRedoStepThreshold;
+            Game.Redo();
+        }
+    }
+
+    private void OpenSettings()
+    {
+        isMenuOpen = false;
+        showSettingsModal = true;
+    }
+
+    private async Task SyncWheelModeAsync()
+    {
+        wheelDeltaAccumulator = 0;
+        string mode = Game.WheelMode == MouseWheelMode.UndoRedo ? "undoredo" : "zoom";
+        await SafeInvokeVoidAsync("twistHelpers.setWheelMode", mode);
+    }
+
+    private async Task OnSettingsChangedAsync()
+    {
+        await SyncWheelModeAsync();
+        await SavePreferencesAsync();
+    }
+
+    private async Task ResetSettingsToDefaultsAsync()
+    {
+        Game.ResetPreferencesToDefaults();
+        await OnSettingsChangedAsync();
+    }
+
+    private async Task SavePreferencesAsync()
+    {
+        try
+        {
+            string json = JsonSerializer.Serialize(Game.ExportPreferences(), TwistJsonContext.Default.UserPreferences);
+            await SafeInvokeVoidAsync("twistHelpers.saveSettings", json);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving settings: {ex.Message}");
+        }
+    }
+
+    private static string GetEdgeGroupColor(int colorValue)
+    {
+        int idx = Math.Abs(colorValue) - 1;
+        if (idx < 0) idx = 0;
+        return EdgeGroupPalette[idx % EdgeGroupPalette.Length];
+    }
+
+    private void OpenFilesModal()
+    {
+        isMenuOpen = false;
+        filesStatusMessage = null;
+        filesStatusIsError = false;
+        showFilesModal = true;
+    }
+
+    private void AnalyzePuzzle()
+    {
+        Game.AnalyzeCurrentPuzzle();
+    }
+
+    private string? BuildExportPayload(string kind, out string fileName, out string label)
+    {
+        fileName = "puzzle.txt";
+        label = kind;
+        switch (kind)
+        {
+            case "twist":
+                fileName = "puzzle.twist";
+                label = ".twist file";
+                return Game.ExportTwistText();
+            case "ascii":
+                fileName = "puzzle.txt";
+                label = "ASCII grid";
+                return Game.ExportSquareAscii();
+            case "pearl-desc":
+                fileName = "puzzle-pearl.txt";
+                label = "Pearl code";
+                return Game.ExportPearlDescriptor();
+            default:
+                return null;
+        }
+    }
+
+    private async Task DownloadExportAsync(string kind)
+    {
+        string? content = BuildExportPayload(kind, out string fileName, out string label);
+        if (string.IsNullOrEmpty(content))
+        {
+            filesStatusMessage = $"Export ({label}) is not supported for this grid.";
+            filesStatusIsError = true;
+            return;
+        }
+
+        bool ok = false;
+        try
+        {
+            ok = await JS.InvokeAsync<bool>("twistHelpers.downloadTextFile", fileName, content);
+        }
+        catch {}
+
+        filesStatusMessage = ok ? $"Downloaded {fileName}." : "Could not trigger file download.";
+        filesStatusIsError = !ok;
+    }
+
+    private async Task CopyExportAsync(string kind)
+    {
+        string? content = BuildExportPayload(kind, out _, out string label);
+        if (string.IsNullOrEmpty(content))
+        {
+            filesStatusMessage = $"Copy ({label}) is not supported for this grid.";
+            filesStatusIsError = true;
+            return;
+        }
+
+        bool ok = false;
+        try
+        {
+            ok = await JS.InvokeAsync<bool>("twistHelpers.copyToClipboard", content);
+        }
+        catch {}
+
+        filesStatusMessage = ok ? $"Copied {label} to clipboard." : "Could not access clipboard.";
+        filesStatusIsError = !ok;
+    }
+
+    private async Task PrintBoardAsync()
+    {
+        showFilesModal = false;
+        isMenuOpen = false;
+        await SafeInvokeVoidAsync("twistHelpers.triggerPrint");
+    }
+
+    private async Task OnImportFileSelected(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var stream = e.File.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
+            using var reader = new System.IO.StreamReader(stream);
+            importText = await reader.ReadToEndAsync();
+            ImportPuzzleFromText();
+        }
+        catch (Exception ex)
+        {
+            filesStatusMessage = $"Could not read file: {ex.Message}";
+            filesStatusIsError = true;
+        }
+    }
+
+    private void ImportPuzzleFromText()
+    {
+        if (Game.ImportPuzzle(importText, out string format))
+        {
+            selectedType = Game.CurrentType.ToString();
+            lastSolvedState = Game.IsSolved;
+            ResetZoom();
+            filesStatusMessage = $"Imported {format} puzzle.";
+            filesStatusIsError = false;
+            showFilesModal = false;
+        }
+        else
+        {
+            filesStatusMessage = "Unrecognized puzzle format. Supported: .twist, ASCII grid (+ O * - |), Pearl descriptor (wxh:...), or Share link.";
+            filesStatusIsError = true;
+        }
     }
 
     private void OnTypeChanged(ChangeEventArgs e)
@@ -768,7 +1529,7 @@
     }
 
     [JSInvokable]
-    public void OnSvgPointerDown(double x, double y, int button, bool shiftKey)
+    public void OnSvgPointerDown(double x, double y, int button, bool shiftKey, bool ctrlKey = false, bool altKey = false)
     {
         if (Game.CurrentMesh == null || Game.IsGenerating) return;
 
@@ -789,6 +1550,12 @@
             if (Game.MarkedEdges.Contains(closestEdge))
                 return; // Fixed edges cannot be clicked or changed
 
+            if ((altKey || ctrlKey) && Game.ShowEdgeColors)
+            {
+                Game.HandleEdgeGroupingClick(closestEdge, sameLoop: altKey);
+                return;
+            }
+
             isPointerDown = true;
             Game.ToggleEdge(closestEdge, isAlt);
             dragTargetState = Game.CurrentMesh.Edges[closestEdge].State;
@@ -796,9 +1563,14 @@
         }
         else if (closestCell != -1 && Game.ShowCellColors)
         {
+            Game.ClearPendingEdgeGroup();
             isPointerDown = true;
             Game.ToggleCellColor(closestCell, isAlt);
             speculativeFirstTouchToggled = true;
+        }
+        else
+        {
+            Game.ClearPendingEdgeGroup();
         }
     }
 
@@ -855,6 +1627,8 @@
             case "fix": Game.Fix(); break;
             case "unfix": Game.Unfix(); break;
             case "revert": Game.RevertToFix(); break;
+            case "hint": RequestHint(); break;
+            case "dohint": RequestDoHint(); break;
         }
     }
 
@@ -873,7 +1647,7 @@
             if (string.IsNullOrEmpty(savedJson))
                 return false;
 
-            var savedState = System.Text.Json.JsonSerializer.Deserialize<SavedGameState>(savedJson);
+            var savedState = JsonSerializer.Deserialize(savedJson, TwistJsonContext.Default.SavedGameState);
             if (savedState != null && (predicate == null || predicate(savedState)) && Game.RestoreState(savedState))
             {
                 selectedType = Game.CurrentType.ToString();
@@ -926,6 +1700,7 @@
 
     public void Dispose()
     {
+        StopVisualSolvePlayback();
         Game.OnStateChanged -= HandleStateChanged;
         timer?.Dispose();
         shareToastCts?.Cancel();

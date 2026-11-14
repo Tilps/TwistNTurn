@@ -35,17 +35,12 @@ namespace TwistNTurn
 
         public static void GetDefaultSize(MeshType type, out int width, out int height)
         {
-            switch (type)
+            (width, height) = type switch
             {
-                case MeshType.Hexagonal3:
-                    width = 3;
-                    height = 3;
-                    break;
-                default:
-                    width = 10;
-                    height = 10;
-                    break;
-            }
+                MeshType.Hexagonal2 => (5, 5),
+                MeshType.Hexagonal3 or MeshType.Hexagonal4 => (3, 3),
+                _ => (10, 10)
+            };
         }
 
         public static bool ParseSize(string val, MeshType type, out int width, out int height)
@@ -81,7 +76,9 @@ namespace TwistNTurn
             {
                 "square" or "sq" => MeshType.Square,
                 "squaresymmetrical" or "sqs" => MeshType.SquareSymmetrical,
+                "hexagon2" or "hexagonal2" or "hex2" => MeshType.Hexagonal2,
                 "hexagon3" or "hexagonal3" or "hex3" => MeshType.Hexagonal3,
+                "hexagon4" or "hexagonal4" or "hex4" => MeshType.Hexagonal4,
                 _ => MeshType.Square
             };
         }

@@ -173,9 +173,12 @@ namespace TwistNTurn.Tests
         }
 
         [TestMethod]
-        public async Task GenerateAsync_ProducesValidPuzzle()
+        [DataRow(MeshType.Square, 3, 3)]
+        [DataRow(MeshType.Hexagonal2, 5, 5)]
+        [DataRow(MeshType.Hexagonal4, 3, 3)]
+        public async Task GenerateAsync_ProducesValidPuzzle(MeshType type, int width, int height)
         {
-            var mesh = PuzzleHelper.MakeMesh(3, 3, MeshType.Square, 0);
+            var mesh = PuzzleHelper.MakeMesh(width, height, type, 0);
             await mesh.GenerateAsync();
             Assert.AreEqual(SolveState.Solved, mesh.TrySolve());
         }

@@ -10,7 +10,9 @@ namespace TwistNTurn
         {
             MeshType.Square => "sq",
             MeshType.SquareSymmetrical => "sqs",
+            MeshType.Hexagonal2 => "hex2",
             MeshType.Hexagonal3 => "hex3",
+            MeshType.Hexagonal4 => "hex4",
             _ => "sq"
         };
 
@@ -18,7 +20,9 @@ namespace TwistNTurn
         {
             "sq" or "square" => MeshType.Square,
             "sqs" or "squaresymmetrical" => MeshType.SquareSymmetrical,
+            "hex2" or "hexagonal2" or "hexagon2" => MeshType.Hexagonal2,
             "hex3" or "hexagonal3" or "hexagon3" => MeshType.Hexagonal3,
+            "hex4" or "hexagonal4" or "hexagon4" => MeshType.Hexagonal4,
             _ => MeshType.Square
         };
 
