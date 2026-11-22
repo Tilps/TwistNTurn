@@ -108,13 +108,16 @@ namespace TwistNTurn
         {
             solutionsFound.Clear();
             solutionDepthPatern.Clear();
+            earlyFail = false;
             List<IAction> edgeChanges = new List<IAction>();
+            bool canceled = false;
             try
             {
                 if (!PerformStart(edgeChanges))
                     return SolveState.NoSolutions;
                 // No point doing anything if we're already complete.
-                PerformEndIfPossible(edgeChanges);
+                if (!PerformEndIfPossible(edgeChanges, out _))
+                    return SolveState.NoSolutions;
                 curDepthPatern.Clear();
                 if (solverMethod == SolverMethod.Iterative)
                     return IterativeTrySolve(noRollback);
@@ -123,45 +126,41 @@ namespace TwistNTurn
             }
             catch (OperationCanceledException)
             {
-                // We're screwed, no point trying to rollback changes.
+                canceled = true;
                 edgeChanges.Clear();
                 return SolveState.NoSolutions;
             }
             finally
             {
-                if (!noRollback)
+                earlyFail = false;
+                if (canceled)
+                {
+                    Clear();
+                }
+                else if (!noRollback)
+                {
                     Unperform(edgeChanges);
+                }
             }
         }
 
-        private bool topLevel = false;
-
         public bool PerformStart(List<IAction> changes)
         {
-            try
+            if (superSlowMo)
             {
-                topLevel = true;
-                if (superSlowMo)
-                {
-                    for (int i = 0; i < intersections.Count; i++)
-                        if (intersections[i].Type != IntersType.Unknown)
-                            if (!Perform(null, changes, int.MaxValue, new List<int> { i }))
-                                return false;
-                    return true;
-                }
-                else
-                {
-                    List<int> allIntersWithType = new List<int>();
-                    for (int i = 0; i < intersections.Count; i++)
-                        if (intersections[i].Type != IntersType.Unknown)
-                            allIntersWithType.Add(i);
-                    // TODO: turn on coloring cheats around this?
-                    return Perform(null, changes, int.MaxValue, allIntersWithType);
-                }
+                for (int i = 0; i < intersections.Count; i++)
+                    if (intersections[i].Type != IntersType.Unknown)
+                        if (!Perform(null, changes, int.MaxValue, new List<int> { i }))
+                            return false;
+                return true;
             }
-            finally
+            else
             {
-                topLevel = false;
+                List<int> allIntersWithType = new List<int>();
+                for (int i = 0; i < intersections.Count; i++)
+                    if (intersections[i].Type != IntersType.Unknown)
+                        allIntersWithType.Add(i);
+                return Perform(null, changes, int.MaxValue, allIntersWithType);
             }
         }
 
@@ -208,9 +207,8 @@ namespace TwistNTurn
             }
             catch (OperationCanceledException)
             {
-                // We're screwed, no point trying to rollback changes.
                 realChanges.Clear();
-                return SolveState.NoSolutions;
+                throw;
             }
             finally
             {
@@ -236,54 +234,69 @@ namespace TwistNTurn
             while (index < trials.Count && IsPointlessTrial(trials[index]))
                 index++;
             curDepthPatern.Add(index);
-            if (index < trials.Count)
+            try
             {
-                bool success1 = Perform(trials[index], edgeChanges1);
-                if (MeshChangeUpdate != null)
-                    MeshChangeUpdate(this, new MeshChangeUpdateEventArgs(this, null, true, true));
-                if (success1)
+                if (index < trials.Count)
                 {
-                    SolveState result = RecursiveTrySolveInternal(trials, index + 1);
-                    if (result == SolveState.MultipleSolutions)
+                    bool success1 = Perform(trials[index], edgeChanges1);
+                    try
+                    {
+                        if (MeshChangeUpdate != null)
+                            MeshChangeUpdate(this, new MeshChangeUpdateEventArgs(this, null, true, true));
+                        if (success1)
+                        {
+                            SolveState result = RecursiveTrySolveInternal(trials, index + 1);
+                            if (result == SolveState.MultipleSolutions)
+                            {
+                                return SolveState.MultipleSolutions;
+                            }
+                            else if (result == SolveState.NoSolutions)
+                                success1 = false;
+                        }
+                    }
+                    finally
                     {
                         Unperform(edgeChanges1);
-                        curDepthPatern.RemoveAt(curDepthPatern.Count - 1);
-                        return SolveState.MultipleSolutions;
                     }
-                    else if (result == SolveState.NoSolutions)
-                        success1 = false;
-                }
-                Unperform(edgeChanges1);
-                bool success2 = Perform(GetOppositeAction(trials[index]), edgeChanges2);
-                if (MeshChangeUpdate != null)
-                    MeshChangeUpdate(this, new MeshChangeUpdateEventArgs(this, null, true, true));
-                if (success2)
-                {
-                    SolveState result = RecursiveTrySolveInternal(trials, index + 1);
-                    if (result == SolveState.MultipleSolutions)
+
+                    bool success2 = Perform(GetOppositeAction(trials[index]), edgeChanges2);
+                    try
+                    {
+                        if (MeshChangeUpdate != null)
+                            MeshChangeUpdate(this, new MeshChangeUpdateEventArgs(this, null, true, true));
+                        if (success2)
+                        {
+                            SolveState result = RecursiveTrySolveInternal(trials, index + 1);
+                            if (result == SolveState.MultipleSolutions)
+                            {
+                                return SolveState.MultipleSolutions;
+                            }
+                            else if (result == SolveState.NoSolutions)
+                                success2 = false;
+                        }
+                    }
+                    finally
                     {
                         Unperform(edgeChanges2);
-                        curDepthPatern.RemoveAt(curDepthPatern.Count - 1);
-                        return SolveState.MultipleSolutions;
                     }
-                    else if (result == SolveState.NoSolutions)
-                        success2 = false;
+
+                    if (!success1 && !success2)
+                        return SolveState.NoSolutions;
+                    else if (success1 && success2)
+                        return SolveState.MultipleSolutions;
+                    else
+                        return SolveState.Solved;
                 }
-                Unperform(edgeChanges2);
-                curDepthPatern.RemoveAt(curDepthPatern.Count - 1);
-                if (!success1 && !success2)
-                    return SolveState.NoSolutions;
-                else if (success1 && success2)
+                solutionsFound.Add(this.Clone());
+                solutionDepthPatern.Add(curDepthPatern.ToArray());
+                if (solutionsFound.Count > 1)
                     return SolveState.MultipleSolutions;
-                else
-                    return SolveState.Solved;
+                return SolveState.Solved;
             }
-            solutionsFound.Add(this.Clone());
-            solutionDepthPatern.Add(curDepthPatern.ToArray());
-            curDepthPatern.RemoveAt(curDepthPatern.Count - 1);
-            if (solutionsFound.Count > 1)
-                return SolveState.MultipleSolutions;
-            return SolveState.Solved;
+            finally
+            {
+                curDepthPatern.RemoveAt(curDepthPatern.Count - 1);
+            }
         }
 
         public double PercentSolved
@@ -308,14 +321,13 @@ namespace TwistNTurn
                     if (edge.State == EdgeState.Empty)
                         count++;
                 }
-                percentSolved = (double)count / (double)edges.Count;
+                percentSolved = edges.Count == 0 ? 0.0 : 1.0 - (double)count / (double)edges.Count;
                 return res;
             }
             catch (OperationCanceledException)
             {
-                // We're screwed anyway, no point trying to undo the changes.
                 realChanges.Clear();
-                return SolveState.NoSolutions;
+                throw;
             }
             finally
             {
@@ -329,10 +341,6 @@ namespace TwistNTurn
             int count = 0;
             bool changed = true;
             iterativeRecDepth = 1;
-            if (pruning)
-            {
-                oldFirstOrder = null;
-            }
             while (changed)
             {
                 count = 0;
@@ -349,7 +357,8 @@ namespace TwistNTurn
                 }
                 if (changed == false)
                 {
-                    changed = PerformEndIfPossible(realChanges);
+                    if (!PerformEndIfPossible(realChanges, out changed))
+                        return SolveState.NoSolutions;
                 }
                 if (!changed)
                 {
@@ -494,7 +503,6 @@ namespace TwistNTurn
           */
             return true;
         }
-        private Dictionary<int, int>? oldFirstOrder;
         /*
         private List<int> GetAffectingEdges(int i)
         {
@@ -647,7 +655,6 @@ namespace TwistNTurn
                             if (iterTopLevel)
                             {
                                 coloringCheats = true;
-                                topLevel = true;
                             }
                             int length = realChanges.Count;
                             if (!Perform(merged, realChanges, iterTopLevel))
@@ -657,17 +664,10 @@ namespace TwistNTurn
                                 MeshChangeUpdate(this, new MeshChangeUpdateEventArgs(this, null, true));
                             if (realChanges.Count != length)
                                 changed = true;
-                            // This doesn't appear to make any sense and PerformStart has changed now.
-                            /*if (changed && topLevel)
-                            {
-                                if (!PerformStart(realChanges))
-                                    return false;
-                            }*/
                         }
                         finally
                         {
                             coloringCheats = colorCheatBackup;
-                            topLevel = false;
                         }
                     }
                 }
@@ -679,7 +679,6 @@ namespace TwistNTurn
                         if (iterTopLevel)
                         {
                             coloringCheats = true;
-                            topLevel = true;
                         }
                         int length = realChanges.Count;
                         if (!Perform(edgeChanges1, realChanges, iterTopLevel))
@@ -692,7 +691,6 @@ namespace TwistNTurn
                     finally
                     {
                         coloringCheats = colorCheatBackup;
-                        topLevel = false;
                     }
                 }
                 else
@@ -703,7 +701,6 @@ namespace TwistNTurn
                         if (iterTopLevel)
                         {
                             coloringCheats = true;
-                            topLevel = true;
                         }
                         int length = realChanges.Count;
                         if (!Perform(edgeChanges2, realChanges, iterTopLevel))
@@ -716,7 +713,6 @@ namespace TwistNTurn
                     finally
                     {
                         coloringCheats = colorCheatBackup;
-                        topLevel = false;
                     }
                 }
             }
@@ -838,28 +834,29 @@ namespace TwistNTurn
                 IAction action = realChanges[i];
                 if (action is SetAction)
                 {
-                    SetAction setAction = (SetAction) action;
-                    for (var j = 0; j < setAction.GetAffectedEdges().Count; j++)
+                    SetAction setAction = (SetAction)action;
+                    List<int> affectedEdges = setAction.GetAffectedEdges();
+                    for (var j = 0; j < affectedEdges.Count; j++)
                     {
-                        int edge = setAction.GetAffectedEdges()[j];
-                        GatherNearEdge(trials, edge, locusAction, true);
+                        GatherNearEdge(trials, affectedEdges[j], locusAction, true);
                     }
                 }
                 else if (action is ColorJoinAction)
                 {
-                    ColorJoinAction cjAction = (ColorJoinAction) action;
-                    for (var j = 0; j < cjAction.GetAffectedEdges().Count; j++)
+                    ColorJoinAction cjAction = (ColorJoinAction)action;
+                    List<int> affectedEdges = cjAction.GetAffectedEdges();
+                    for (var j = 0; j < affectedEdges.Count; j++)
                     {
-                        int edge = cjAction.GetAffectedEdges()[j];
-                        GatherNearEdge(trials, edge, locusAction, true);
+                        GatherNearEdge(trials, affectedEdges[j], locusAction, true);
                     }
                 }
                 else if (action is CellColorJoinAction)
                 {
-                    CellColorJoinAction ccjAction = (CellColorJoinAction) action;
-                    for (var j = 0; j < ccjAction.GetAffectedCells().Count; j++)
+                    CellColorJoinAction ccjAction = (CellColorJoinAction)action;
+                    List<int> affectedCells = ccjAction.GetAffectedCells();
+                    for (var j = 0; j < affectedCells.Count; j++)
                     {
-                        int cell = ccjAction.GetAffectedCells()[j];
+                        int cell = affectedCells[j];
                         for (var k = 0; k < cells[cell].Edges.Count; k++)
                         {
                             int edge = cells[cell].Edges[k];
@@ -898,7 +895,7 @@ namespace TwistNTurn
                         smarts.Add(new CellColorJoinAction(this, i, -1, true));
                 }
             }
-            if (followCells)
+            if (followCells && e.Cells.Count > 0)
             {
                 for (var index = 0; index < cells[e.Cells[0]].Edges.Count; index++)
                 {
@@ -975,9 +972,9 @@ namespace TwistNTurn
             return minDist;
         }
 
-        private bool PerformEndIfPossible(List<IAction> realChanges)
+        private bool PerformEndIfPossible(List<IAction> realChanges, out bool changed)
         {
-            bool changed = false;
+            changed = false;
             if (satisifiedIntersCount == intersections.Count)
             {
                 int edgeSetCount = 0;
@@ -986,21 +983,30 @@ namespace TwistNTurn
                     if (edgeSet.Count > 0)
                         edgeSetCount++;
                 }
-                // If there is exactly 1 edge set and all intersections are happy, we are in a complete situation.
+                // If there is exactly 1 edge set and all intersections & clues are satisfied, close remaining edges.
                 if (edgeSetCount == 1)
                 {
+                    for (int i = 0; i < intersections.Count; i++)
+                    {
+                        if (intersections[i].Type != IntersType.Unknown)
+                        {
+                            if (intersections[i].FilledCount != 2 || !TypeSatisfied(i))
+                                return true;
+                        }
+                    }
                     for (int i = 0; i < edges.Count; i++)
                     {
                         Edge e = edges[i];
                         if (e.State == EdgeState.Empty)
                         {
                             changed = true;
-                            Perform(i, EdgeState.Excluded, realChanges, 0);
+                            if (!Perform(i, EdgeState.Excluded, realChanges, 0))
+                                return false;
                         }
                     }
                 }
             }
-            return changed;
+            return true;
         }
 
         private Mesh Clone()
@@ -1039,7 +1045,7 @@ namespace TwistNTurn
                             return false;
                     }
                     else if (edge.State != act.EdgeState)
-                        throw new InvalidOperationException("doh");
+                        return false;
                 }
                 else if (action is ColorJoinAction)
                 {
@@ -1546,7 +1552,8 @@ namespace TwistNTurn
                     if (UseColoring && edge.Color != 0)
                     {
                         // TODO: do not activate this unless the edge color has changed.
-                        GatherCellColoringEdgeColoringMovesForEdgeColorChange(edge, moves, curDepth, edgeAffectedIndex);
+                        if (!GatherCellColoringEdgeColoringMovesForEdgeColorChange(edge, moves, curDepth, edgeAffectedIndex))
+                            return false;
                     }
                     foreach (int intersIndex in edge.Intersections)
                     {
@@ -2311,6 +2318,8 @@ namespace TwistNTurn
             }
             else if (inters.Type == IntersType.Twist)
             {
+                if (inters.Edges.Count <= 2)
+                    return false;
                 if (inters.FilledCount == 1)
                 {
                     for (int i = 0; i < inters.Edges.Count; i++)
@@ -2319,7 +2328,9 @@ namespace TwistNTurn
                         if (edges[edge].State == EdgeState.Filled)
                         {
                             int other = inters.Opposite[i];
-                            if (other != -1 && edges[other].State != EdgeState.Filled)
+                            if (other == -1)
+                                return false;
+                            if (edges[other].State != EdgeState.Filled)
                             {
                                 if (edges[other].State == EdgeState.Excluded)
                                     return false;
@@ -3014,7 +3025,7 @@ namespace TwistNTurn
         }
 
 
-        private struct SuccessLookup
+        private struct SuccessLookup : IEquatable<SuccessLookup>
         {
             public uint[] success;
             public int curNumber;
@@ -3030,10 +3041,8 @@ namespace TwistNTurn
                 return hashcode;
             }
 
-            public override bool Equals(object? obj)
+            public bool Equals(SuccessLookup other)
             {
-                if (obj is not SuccessLookup other)
-                    return false;
                 if (other.curNumber != curNumber)
                     return false;
                 if (other.success.Length != success.Length)
@@ -3044,8 +3053,9 @@ namespace TwistNTurn
                         return false;
                 }
                 return true;
-              
             }
+
+            public override bool Equals(object? obj) => obj is SuccessLookup other && Equals(other);
         }
 
         Dictionary<SuccessLookup, int[,]> successLookup = new Dictionary<SuccessLookup, int[,]>();
@@ -3186,7 +3196,7 @@ namespace TwistNTurn
             return true;
         }
 
-        private struct PatternLookup
+        private struct PatternLookup : IEquatable<PatternLookup>
         {
             public List<KeyValuePair<uint, List<int>>> targets; 
             public int[] baseLine; 
@@ -3194,13 +3204,16 @@ namespace TwistNTurn
             public int[] numbering;
             public List<uint> edgePatterns;
             public List<uint> edgeMasks;
+            public bool useColoring;
+            public bool useEdgeRestricts;
+
             public override int GetHashCode()
             {
                 int hashcode = 0;
                 for (int i = 0; i < targets.Count; i++)
                 {
                     hashcode += hashcode << 5;
-                    hashcode ^=  (int)targets[i].Key;
+                    hashcode ^= (int)targets[i].Key;
                     for (int j = 0; j < targets[i].Value.Count; j++)
                     {
                         hashcode += hashcode << 5;
@@ -3229,15 +3242,18 @@ namespace TwistNTurn
                 }
                 hashcode += hashcode << 5;
                 hashcode ^= curNumber;
+                hashcode += hashcode << 5;
+                hashcode ^= (useColoring ? 1 : 0) | (useEdgeRestricts ? 2 : 0);
                 return hashcode;
             }
-            public override bool Equals(object? obj)
+
+            public bool Equals(PatternLookup other)
             {
-                if (obj is not PatternLookup other)
+                if (other.curNumber != curNumber || other.useColoring != useColoring || other.useEdgeRestricts != useEdgeRestricts)
                     return false;
-                if (other.curNumber != curNumber)
+                if (other.targets.Count != targets.Count || other.baseLine.Length != baseLine.Length || other.numbering.Length != numbering.Length)
                     return false;
-                if (other.targets.Count != targets.Count)
+                if (edgePatterns.Count != other.edgePatterns.Count || edgeMasks.Count != other.edgeMasks.Count)
                     return false;
                 for (int i = 0; i < targets.Count; i++)
                 {
@@ -3256,7 +3272,7 @@ namespace TwistNTurn
                 }
                 for (int i = 0; i < baseLine.Length; i++)
                 {
-                    if(baseLine[i] != other.baseLine[i])
+                    if (baseLine[i] != other.baseLine[i])
                         return false;
                 }
                 for (int i = 0; i < numbering.Length; i++)
@@ -3264,8 +3280,6 @@ namespace TwistNTurn
                     if (numbering[i] != other.numbering[i])
                         return false;
                 }
-                if (edgePatterns.Count != other.edgePatterns.Count)
-                    return false;
                 for (int i = 0; i < edgePatterns.Count; i++)
                 {
                     if (edgePatterns[i] != other.edgePatterns[i])
@@ -3278,6 +3292,8 @@ namespace TwistNTurn
                 }
                 return true;
             }
+
+            public override bool Equals(object? obj) => obj is PatternLookup other && Equals(other);
         }
 
         Dictionary<PatternLookup, List<int[]>?> patternLookup = new Dictionary<PatternLookup, List<int[]>?>();
@@ -3289,11 +3305,11 @@ namespace TwistNTurn
             PatternLookup key;
             if (useEdgeRestricts)
             {
-                key = new PatternLookup() { targets = targets, baseLine = baseLine, curNumber = curNumber, numbering = numbering, edgePatterns = edgeRestrictPattern, edgeMasks = edgeRestrictMask };
+                key = new PatternLookup() { targets = targets, baseLine = baseLine, curNumber = curNumber, numbering = numbering, edgePatterns = edgeRestrictPattern, edgeMasks = edgeRestrictMask, useColoring = UseColoring, useEdgeRestricts = UseEdgeRestricts };
             }
             else
             {
-                key = new PatternLookup() { targets = targets, baseLine = baseLine, curNumber = curNumber, numbering = numbering, edgePatterns = emptyList, edgeMasks = emptyList };
+                key = new PatternLookup() { targets = targets, baseLine = baseLine, curNumber = curNumber, numbering = numbering, edgePatterns = emptyList, edgeMasks = emptyList, useColoring = UseColoring, useEdgeRestricts = UseEdgeRestricts };
             }
             if (!patternLookup.TryGetValue(key, out result))
             {

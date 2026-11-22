@@ -63,7 +63,7 @@ namespace TwistNTurn.Tests
             Assert.AreEqual(original.ShowEdgeColors, restored.ShowEdgeColors);
             Assert.AreEqual(original.SolverModeOverride, restored.SolverModeOverride);
 
-            var game = new GameService();
+            using var game = new GameService();
             game.ApplyPreferences(restored);
             Assert.IsTrue(game.AutoStart);
             Assert.IsFalse(game.ShowClock);
@@ -77,7 +77,7 @@ namespace TwistNTurn.Tests
         [TestMethod]
         public void AutoStart_AndGeneratorOverrides_ApplyCleanly()
         {
-            var game = new GameService();
+            using var game = new GameService();
             game.AutoStart = true;
             game.LoadPuzzleText(PuzzleCodec.Encode(CreateSquare2x2CornerBlackPuzzle(), 2, 2));
 

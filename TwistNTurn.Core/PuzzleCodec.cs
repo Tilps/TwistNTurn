@@ -1,5 +1,5 @@
-#nullable enable
 using System;
+using System.Globalization;
 using System.Text;
 
 namespace TwistNTurn
@@ -16,15 +16,41 @@ namespace TwistNTurn
             _ => "sq"
         };
 
-        public static MeshType FromTypeCode(string code) => code.ToLowerInvariant() switch
+        public static bool TryFromTypeCode(string code, out MeshType type)
         {
-            "sq" or "square" => MeshType.Square,
-            "sqs" or "squaresymmetrical" => MeshType.SquareSymmetrical,
-            "hex2" or "hexagonal2" or "hexagon2" => MeshType.Hexagonal2,
-            "hex3" or "hexagonal3" or "hexagon3" => MeshType.Hexagonal3,
-            "hex4" or "hexagonal4" or "hexagon4" => MeshType.Hexagonal4,
-            _ => MeshType.Square
-        };
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                type = MeshType.Square;
+                return false;
+            }
+
+            switch (code.Trim().ToLowerInvariant())
+            {
+                case "sq":
+                case "square":
+                    type = MeshType.Square; return true;
+                case "sqs":
+                case "squaresymmetrical":
+                    type = MeshType.SquareSymmetrical; return true;
+                case "hex2":
+                case "hexagonal2":
+                case "hexagon2":
+                    type = MeshType.Hexagonal2; return true;
+                case "hex3":
+                case "hexagonal3":
+                case "hexagon3":
+                    type = MeshType.Hexagonal3; return true;
+                case "hex4":
+                case "hexagonal4":
+                case "hexagon4":
+                    type = MeshType.Hexagonal4; return true;
+                default:
+                    type = MeshType.Square;
+                    return false;
+            }
+        }
+
+        public static MeshType FromTypeCode(string code) => TryFromTypeCode(code, out var type) ? type : MeshType.Square;
 
         public static string Encode(Mesh mesh, int width, int height)
         {
@@ -33,9 +59,9 @@ namespace TwistNTurn
             var sb = new StringBuilder();
             sb.Append(ToTypeCode(mesh.MeshType));
             sb.Append('/');
-            sb.Append(width);
+            sb.Append(width.ToString(CultureInfo.InvariantCulture));
             sb.Append('x');
-            sb.Append(height);
+            sb.Append(height.ToString(CultureInfo.InvariantCulture));
             sb.Append('/');
 
             int emptyRun = 0;
@@ -65,7 +91,6 @@ namespace TwistNTurn
                         sb.Append('1');
                 }
             }
-            // Trailing empty intersections do not need to be written.
 
             return sb.ToString();
         }
@@ -88,65 +113,91 @@ namespace TwistNTurn
 
             code = code.Trim();
             if (code.StartsWith('#')) code = code[1..];
-            if (code.StartsWith("p=")) code = code[2..];
-            else if (code.StartsWith("puzzle=")) code = code[7..];
+            if (code.StartsWith("p=", StringComparison.Ordinal)) code = code[2..];
+            else if (code.StartsWith("puzzle=", StringComparison.Ordinal)) code = code[7..];
 
-            // Check if it's the legacy format: {w}x{h}:{cluestring}
+            // Legacy format: {w}x{h}:{cluestring}
             int colonIndex = code.IndexOf(':');
             if (colonIndex > 0 && !code.Contains('/'))
             {
                 try
                 {
-                    mesh = Mesh.FromPuzzleString(code);
-                    string[] dimParts = code.Substring(0, colonIndex).Split('x');
-                    if (dimParts.Length == 2 && int.TryParse(dimParts[0], out int w) && int.TryParse(dimParts[1], out int h))
+                    string[] dimParts = code[..colonIndex].Split('x');
+                    if (dimParts.Length != 2
+                        || !int.TryParse(dimParts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int w)
+                        || !int.TryParse(dimParts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int h)
+                        || w < 2 || h < 2
+                        || w - 1 > PuzzleHelper.MaxGridDimension || h - 1 > PuzzleHelper.MaxGridDimension)
                     {
-                        width = w - 1;
-                        height = h - 1;
+                        return false;
                     }
+
+                    mesh = Mesh.FromPuzzleString(code);
+                    width = w - 1;
+                    height = h - 1;
                     type = MeshType.Square;
                     return true;
                 }
                 catch
                 {
+                    mesh = null;
                     return false;
                 }
             }
 
             string[] parts = code.Split('/', StringSplitOptions.None);
-            if (parts.Length < 2) return false;
+            if (parts.Length is < 2 or > 3) return false;
 
-            type = FromTypeCode(parts[0]);
+            if (!TryFromTypeCode(parts[0], out type))
+                return false;
 
             string sizeStr = parts[1];
-            if (!PuzzleHelper.ParseSize(sizeStr, type, out width, out height))
-            {
+            if (string.IsNullOrWhiteSpace(sizeStr) || !PuzzleHelper.ParseSize(sizeStr, type, out width, out height))
                 return false;
-            }
 
             try
             {
                 mesh = new Mesh(width, height, type);
-                if (parts.Length >= 3 && !string.IsNullOrEmpty(parts[2]))
+                if (parts.Length == 3 && !string.IsNullOrEmpty(parts[2]))
                 {
                     string clueString = parts[2];
                     int intersIndex = 0;
-                    for (int i = 0; i < clueString.Length && intersIndex < mesh.Intersections.Count; i++)
+                    for (int i = 0; i < clueString.Length; i++)
                     {
                         char c = clueString[i];
                         if (c == '0')
                         {
+                            if (intersIndex >= mesh.Intersections.Count)
+                            {
+                                mesh = null;
+                                return false;
+                            }
                             mesh.Intersections[intersIndex].Type = IntersType.Twist;
                             intersIndex++;
                         }
                         else if (c == '1')
                         {
+                            if (intersIndex >= mesh.Intersections.Count)
+                            {
+                                mesh = null;
+                                return false;
+                            }
                             mesh.Intersections[intersIndex].Type = IntersType.Turn;
                             intersIndex++;
                         }
-                        else if (c >= 'a' && c <= 'z')
+                        else if (c is >= 'a' and <= 'z')
                         {
                             intersIndex += (c - 'a' + 1);
+                            if (intersIndex > mesh.Intersections.Count)
+                            {
+                                mesh = null;
+                                return false;
+                            }
+                        }
+                        else
+                        {
+                            mesh = null;
+                            return false;
                         }
                     }
                 }

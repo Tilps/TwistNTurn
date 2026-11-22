@@ -555,7 +555,7 @@ body, html {
     color: var(--text-secondary);
     text-align: center;
     margin-top: 0.25rem;
-    animation: toast-in 0.25s ease-out;
+    animation: fade-in 0.25s ease-out;
 }
 
 .cancel-gen-btn {
@@ -569,7 +569,17 @@ body, html {
     cursor: pointer;
     box-shadow: var(--shadow);
     transition: all 0.15s ease;
-    animation: toast-in 0.25s ease-out;
+    animation: fade-in 0.25s ease-out;
+}
+
+@keyframes fade-in {
+    from { transform: translateY(0.5rem); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes banner-in {
+    from { transform: translate(-50%, -100%); opacity: 0; }
+    to { transform: translate(-50%, 0); opacity: 1; }
 }
 
 .cancel-gen-btn:hover {
@@ -1017,9 +1027,9 @@ body, html {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
+    line-height: 1.3;
 }
 
 .hint-toast-icon {
@@ -1203,7 +1213,7 @@ body, html {
     display: flex;
     flex-direction: column;
     gap: 0.45rem;
-    animation: menu-slide-down 0.18s ease-out;
+    animation: banner-in 0.18s ease-out;
 }
 
 .visual-solver-header {
@@ -1349,6 +1359,54 @@ body, html {
     animation: hint-pulse 0.85s ease-in-out infinite;
 }
 
+/* Blazor unhandled error banner */
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: #fef2f2;
+    color: #991b1b;
+    border-top: 1px solid #fecaca;
+    padding: 0.65rem 1.25rem;
+    z-index: 3000;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.15);
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+#blazor-error-ui .reload {
+    margin-left: 0.75rem;
+    font-weight: 700;
+    color: #b91c1c;
+    text-decoration: underline;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 1rem;
+    top: 0.55rem;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
 /* Monochrome Vector Print Stylesheet */
 @media print {
     @page {
@@ -1371,7 +1429,8 @@ body, html {
     .hint-toast-notification,
     .modal-backdrop,
     .update-banner,
-    .overlay-spinner {
+    .overlay-spinner,
+    #blazor-error-ui {
         display: none !important;
     }
 
@@ -1394,9 +1453,23 @@ body, html {
         background: #ffffff !important;
     }
 
-    .edge-empty {
+    .cell-poly {
+        fill: transparent !important;
+    }
+
+    .edge-empty,
+    .edge-grouped {
         stroke: #cbd5e1 !important;
         stroke-width: 1px !important;
+        stroke-dasharray: none !important;
+    }
+
+    .edge-group-pending,
+    .edge-invalid-highlight,
+    .edge-hint-highlight,
+    .edge-hint-cross,
+    .edge-hint-neutral {
+        display: none !important;
     }
 
     .edge-filled,

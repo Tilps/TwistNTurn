@@ -1,0 +1,51 @@
+@using TwistNTurn.Web.Services
+@inject GameService Game
+@implements IDisposable
+
+@if (Game.ShowClock)
+{
+    <div class="timer-box" title="Elapsed Time" aria-label="Elapsed Time">
+        @FormatElapsed(Game.ElapsedTime)
+    </div>
+}
+
+@code {
+    private System.Threading.Timer? tickTimer;
+    private volatile bool disposed;
+
+    public static string FormatElapsed(TimeSpan elapsed)
+    {
+        if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
+        return elapsed.TotalHours >= 1.0
+            ? elapsed.ToString(@"hh\:mm\:ss")
+            : elapsed.ToString(@"mm\:ss");
+    }
+
+    protected override void OnInitialized()
+    {
+        Game.OnStateChanged += HandleStateChanged;
+        tickTimer = new System.Threading.Timer(_ =>
+        {
+            if (!disposed && Game.ShowClock && Game.StartTime.HasValue && !Game.IsSolved && !Game.IsGenerating)
+            {
+                _ = InvokeAsync(StateHasChanged);
+            }
+        }, null, 1000, 1000);
+    }
+
+    private void HandleStateChanged()
+    {
+        if (!disposed)
+        {
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        Game.OnStateChanged -= HandleStateChanged;
+        tickTimer?.Dispose();
+        tickTimer = null;
+    }
+}

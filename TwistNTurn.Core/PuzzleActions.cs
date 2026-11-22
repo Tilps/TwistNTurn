@@ -49,37 +49,44 @@ namespace TwistNTurn
 
             if (closest.State != EdgeState.Empty)
             {
-                IAction unsetAction = new UnsetAction(mesh, edgeIndex);
+                var unsetAction = new UnsetAction(mesh, edgeIndex);
                 bool res = unsetAction.Perform();
-                if ((!res || !unsetAction.Successful) && disallowFalseMove)
-                {
-                    if (res && !unsetAction.Successful)
-                        actionsPerformed.Add(unsetAction);
-                    if (actionsPerformed.Count > 0)
-                        mesh.Unperform(actionsPerformed);
-                    successful = false;
-                    return false;
-                }
                 if (!res || !unsetAction.Successful)
                 {
                     successful = false;
+                    if (res)
+                        actionsPerformed.Add(unsetAction);
+                    if (disallowFalseMove)
+                    {
+                        if (actionsPerformed.Count > 0)
+                        {
+                            mesh.Unperform(actionsPerformed);
+                            actionsPerformed.Clear();
+                        }
+                        return false;
+                    }
                 }
-                actionsPerformed.Add(unsetAction);
+                else
+                {
+                    actionsPerformed.Add(unsetAction);
+                }
             }
 
             if (targetState != EdgeState.Empty)
             {
                 bool res = mesh.Perform(edgeIndex, targetState, actionsPerformed, autoMove);
-                if (!res && disallowFalseMove)
-                {
-                    if (actionsPerformed.Count > 0)
-                        mesh.Unperform(actionsPerformed);
-                    successful = false;
-                    return false;
-                }
                 if (!res)
                 {
                     successful = false;
+                    if (disallowFalseMove)
+                    {
+                        if (actionsPerformed.Count > 0)
+                        {
+                            mesh.Unperform(actionsPerformed);
+                            actionsPerformed.Clear();
+                        }
+                        return false;
+                    }
                 }
             }
 
@@ -94,17 +101,26 @@ namespace TwistNTurn
 
         public void Unperform()
         {
-            if (actionsPerformed != null && actionsPerformed.Count > 0)
+            if (actionsPerformed is { Count: > 0 })
             {
                 mesh.Unperform(actionsPerformed);
+                actionsPerformed.Clear();
             }
         }
 
         public bool Equals(IAction? other)
         {
-            if (other is not PuzzleEdgeAction o) return false;
-            return o.mesh == mesh && o.edgeIndex == edgeIndex && o.isAlternativeCycle == isAlternativeCycle;
+            return other is PuzzleEdgeAction o
+                && o.mesh == mesh
+                && o.edgeIndex == edgeIndex
+                && o.isAlternativeCycle == isAlternativeCycle
+                && o.autoMove == autoMove
+                && o.disallowFalseMove == disallowFalseMove;
         }
+
+        public override bool Equals(object? obj) => obj is IAction action && Equals(action);
+
+        public override int GetHashCode() => System.HashCode.Combine(mesh, edgeIndex, isAlternativeCycle, autoMove, disallowFalseMove);
     }
 
     public class PuzzleCellColorAction : IAction
@@ -129,32 +145,32 @@ namespace TwistNTurn
         {
             if (!reverse)
             {
+                if (color == 0) return 1;
                 if (color == 1) return -1;
-                if (color == -1) return 0;
-                return 1;
+                return 0;
             }
             else
             {
-                if (color == 1) return 0;
+                if (color == 0) return -1;
                 if (color == -1) return 1;
-                return -1;
+                return 0;
             }
         }
 
         public bool Perform()
         {
-            successful = true;
+            successful = false;
             Cell closest = mesh.Cells[cellIndex];
             int newColor = Toggle(closest.Color, reverse);
-            actionsPerformed = new List<IAction>();
+            actionsPerformed = [];
 
             if (closest.Color != 0)
             {
-                IAction unsetAction = new CellColorClearAction(mesh, cellIndex);
+                var unsetAction = new CellColorClearAction(mesh, cellIndex);
                 bool res = unsetAction.Perform();
                 if (!res || !unsetAction.Successful)
                 {
-                    if (res && !unsetAction.Successful)
+                    if (res)
                         actionsPerformed.Add(unsetAction);
                     Unperform();
                     return false;
@@ -164,11 +180,11 @@ namespace TwistNTurn
 
             if (newColor != 0)
             {
-                IAction setAction = new CellColorJoinAction(mesh, cellIndex, -1, newColor == 1);
+                var setAction = new CellColorJoinAction(mesh, cellIndex, -1, newColor == 1);
                 bool res = setAction.Perform();
                 if (!res || !setAction.Successful)
                 {
-                    if (res && !setAction.Successful)
+                    if (res)
                         actionsPerformed.Add(setAction);
                     Unperform();
                     return false;
@@ -176,22 +192,27 @@ namespace TwistNTurn
                 actionsPerformed.Add(setAction);
             }
 
+            successful = true;
             return true;
         }
 
         public void Unperform()
         {
-            if (actionsPerformed != null && actionsPerformed.Count > 0)
+            if (actionsPerformed is { Count: > 0 })
             {
                 mesh.Unperform(actionsPerformed);
+                actionsPerformed.Clear();
             }
         }
 
         public bool Equals(IAction? other)
         {
-            if (other is not PuzzleCellColorAction o) return false;
-            return o.mesh == mesh && o.cellIndex == cellIndex && o.reverse == reverse;
+            return other is PuzzleCellColorAction o && o.mesh == mesh && o.cellIndex == cellIndex && o.reverse == reverse;
         }
+
+        public override bool Equals(object? obj) => obj is IAction action && Equals(action);
+
+        public override int GetHashCode() => System.HashCode.Combine(mesh, cellIndex, reverse);
     }
 
     public class PuzzleSetEdgeStateAction : IAction
@@ -228,26 +249,39 @@ namespace TwistNTurn
 
         public void Unperform()
         {
-            if (actionsPerformed != null && actionsPerformed.Count > 0)
+            if (actionsPerformed is { Count: > 0 })
             {
                 mesh.Unperform(actionsPerformed);
+                actionsPerformed.Clear();
             }
         }
 
         public bool Equals(IAction? other)
         {
-            return other is PuzzleSetEdgeStateAction o && o.mesh == mesh && o.edgeIndex == edgeIndex && o.targetState == targetState && o.disallowFalseMove == disallowFalseMove && o.autoMove == autoMove;
+            return other is PuzzleSetEdgeStateAction o
+                && o.mesh == mesh
+                && o.edgeIndex == edgeIndex
+                && o.targetState == targetState
+                && o.disallowFalseMove == disallowFalseMove
+                && o.autoMove == autoMove;
         }
+
+        public override bool Equals(object? obj) => obj is IAction action && Equals(action);
+
+        public override int GetHashCode() => System.HashCode.Combine(mesh, edgeIndex, targetState, disallowFalseMove, autoMove);
     }
 
     public class PuzzleBatchSolveAction : IAction
     {
         private readonly Mesh mesh;
         private readonly EdgeState[] newStates;
-        private readonly List<IAction> performed = new List<IAction>();
+        private readonly List<IAction> performed = [];
 
         public PuzzleBatchSolveAction(Mesh mesh, Mesh solvedMesh)
         {
+            if (solvedMesh.Edges.Count != mesh.Edges.Count)
+                throw new ArgumentException("Solved mesh edge count does not match target mesh.", nameof(solvedMesh));
+
             this.mesh = mesh;
             newStates = new EdgeState[mesh.Edges.Count];
             for (int i = 0; i < mesh.Edges.Count; i++)
@@ -262,7 +296,6 @@ namespace TwistNTurn
         public bool Perform()
         {
             performed.Clear();
-            // Use the regular actions so all internal bookkeeping stays consistent.
             for (int i = 0; i < mesh.Edges.Count; i++)
             {
                 if (mesh.Edges[i].State != EdgeState.Empty)
@@ -295,7 +328,20 @@ namespace TwistNTurn
 
         public bool Equals(IAction? other)
         {
-            return other is PuzzleBatchSolveAction o && o.mesh == mesh;
+            return other is PuzzleBatchSolveAction o
+                && o.mesh == mesh
+                && o.newStates.AsSpan().SequenceEqual(newStates);
+        }
+
+        public override bool Equals(object? obj) => obj is IAction action && Equals(action);
+
+        public override int GetHashCode()
+        {
+            var hc = new System.HashCode();
+            hc.Add(mesh);
+            for (int i = 0; i < newStates.Length; i++)
+                hc.Add(newStates[i]);
+            return hc.ToHashCode();
         }
     }
 }

@@ -31,7 +31,7 @@ namespace TwistNTurn.Tests
             Assert.AreEqual(3, w);
             Assert.AreEqual(2, h);
 
-            var game = new GameService();
+            using var game = new GameService();
 
             // 1. Native .twist format
             string twistText = PuzzleFormatHelper.ExportTwistText(mesh);
@@ -77,7 +77,7 @@ namespace TwistNTurn.Tests
         [TestMethod]
         public void HandleEdgeGroupingClick_LinksSameAndOppositeParity_AndSupportsUndo()
         {
-            var game = new GameService();
+            using var game = new GameService();
             game.LoadPuzzleText(PuzzleCodec.Encode(CreateSquare2x2CornerBlackPuzzle(), 2, 2));
             game.ShowEdgeColors = true;
             Assert.IsNotNull(game.CurrentMesh);
@@ -120,7 +120,7 @@ namespace TwistNTurn.Tests
         [TestMethod]
         public void AnalyzeCurrentPuzzle_ReportsUniqueMultipleAndUnsolvableCorrectly()
         {
-            var game = new GameService();
+            using var game = new GameService();
 
             // 1. Unique solvable Masyu puzzle (4 Black corner pearls on 2x2)
             game.LoadPuzzleText(PuzzleCodec.Encode(CreateSquare2x2CornerBlackPuzzle(), 2, 2));

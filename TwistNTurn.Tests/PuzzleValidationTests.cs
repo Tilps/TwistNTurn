@@ -159,17 +159,28 @@ namespace TwistNTurn.Tests
             using var cts = new System.Threading.CancellationTokenSource();
             cts.Cancel();
             await mesh.GenerateAsync(cancellationToken: cts.Token);
-            Assert.IsTrue(cts.IsCancellationRequested);
+            Assert.IsFalse(mesh.CreatingLoop);
+            int clueCount = 0;
+            foreach (var inter in mesh.Intersections)
+                if (inter.Type != IntersType.Unknown) clueCount++;
+            Assert.AreEqual(0, clueCount);
         }
 
         [TestMethod]
         public async Task GenerateAsync_AbortedViaAbortPrune_AbortsCleanly()
         {
-            var mesh = PuzzleHelper.MakeMesh(6, 6, MeshType.Square, 0);
-            var task = mesh.GenerateAsync();
-            mesh.AbortPrune = true;
-            await task;
+            var mesh = PuzzleHelper.MakeMesh(5, 5, MeshType.Square, 0);
+            int reported = 0;
+            var progress = new Progress<int>(p =>
+            {
+                reported = p;
+                if (p >= 1) mesh.AbortPrune = true;
+            });
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await mesh.GenerateAsync(progress, cts.Token, new Random(42));
+            Assert.IsFalse(mesh.CreatingLoop);
             Assert.IsTrue(mesh.AbortPrune);
+            Assert.IsLessThan(mesh.Intersections.Count, reported);
         }
 
         [TestMethod]
@@ -179,8 +190,11 @@ namespace TwistNTurn.Tests
         public async Task GenerateAsync_ProducesValidPuzzle(MeshType type, int width, int height)
         {
             var mesh = PuzzleHelper.MakeMesh(width, height, type, 0);
-            await mesh.GenerateAsync();
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await mesh.GenerateAsync(cancellationToken: cts.Token, rnd: new Random(12345));
+            mesh.Clear();
             Assert.AreEqual(SolveState.Solved, mesh.TrySolve());
+            Assert.IsTrue(PuzzleHelper.CheckIsSolved(mesh.SolutionFound));
         }
     }
 }

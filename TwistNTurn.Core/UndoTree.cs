@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 
 namespace TwistNTurn
 {
@@ -11,7 +10,7 @@ namespace TwistNTurn
             get;
         }
         /// <summary>
-        /// Usually true after perform is called if it returns true, but not gauranteed.
+        /// Usually true after perform is called if it returns true, but not guaranteed.
         /// </summary>
         bool Successful
         {
@@ -25,15 +24,14 @@ namespace TwistNTurn
     {
         public UndoTree()
         {
-            root = new UndoNode(null, null, ref curIndex);
+            root = new UndoNode(null, null);
             current = root;
         }
+
         class UndoNode
         {
-            public UndoNode(IAction? action, UndoNode? parent, ref int curIndex)
+            public UndoNode(IAction? action, UndoNode? parent)
             {
-                Index = curIndex;
-                curIndex++;
                 Action = action;
                 Children = [];
                 LastDoneChild = null;
@@ -43,17 +41,12 @@ namespace TwistNTurn
                     parent.Children.Add(this);
                     parent.LastDoneChild = this;
                 }
-                CurrentlyUndone = false;
             }
-            public int Index;
             public IAction? Action;
-            public bool CurrentlyUndone;
             public UndoNode? Parent;
             public List<UndoNode> Children;
             public UndoNode? LastDoneChild;
         }
-
-        int curIndex = 0;
 
         UndoNode root;
         UndoNode current;
@@ -66,14 +59,13 @@ namespace TwistNTurn
             {
                 if (child.Action != null && child.Action.Equals(action))
                 {
-                    current.LastDoneChild = child;
-                    return Redo();
+                    return RedoChild(child);
                 }
             }
             bool res = action.Perform();
             if (!res)
                 return false;
-            UndoNode node = new UndoNode(action, current, ref curIndex);
+            UndoNode node = new UndoNode(action, current);
             current = node;
             if (markNext)
             {
@@ -91,13 +83,7 @@ namespace TwistNTurn
             CanUndoRedoMaybeChanged?.Invoke(this, e);
         }
 
-        public bool CanUndo
-        {
-            get
-            {
-                return current.Action != null;
-            }
-        }
+        public bool CanUndo => current.Action != null;
 
         public IAction? CurrentAction => current.Action;
 
@@ -106,7 +92,6 @@ namespace TwistNTurn
             if (current.Action == null || current.Parent == null)
                 return false;
             current.Action.Unperform();
-            current.CurrentlyUndone = true;
             current = current.Parent;
             OnCanUndoRedoMaybeChanged(EventArgs.Empty);
             return true;
@@ -124,7 +109,7 @@ namespace TwistNTurn
             {
                 current.LastDoneChild = current.Children.Count > 0 ? current.Children[^1] : null;
             }
-            if (marked == toRemove)
+            if (marked != null && IsDescendantOrSelf(marked, toRemove))
             {
                 marked = current;
             }
@@ -132,23 +117,24 @@ namespace TwistNTurn
             return true;
         }
 
-        public bool CanRedo
-        {
-            get
-            {
-                return current.LastDoneChild != null;
-            }
-        }
+        public bool CanRedo => current.LastDoneChild != null;
 
         public bool Redo()
         {
             UndoNode? next = current.LastDoneChild;
-            if (next == null || next.Action == null)
+            if (next == null)
+                return false;
+            return RedoChild(next);
+        }
+
+        private bool RedoChild(UndoNode next)
+        {
+            if (next.Action == null)
                 return false;
             bool res = next.Action.Perform();
             if (!res)
                 return false;
-            next.CurrentlyUndone = false;
+            current.LastDoneChild = next;
             current = next;
             if (markNext)
             {
@@ -167,8 +153,7 @@ namespace TwistNTurn
             {
                 if (child.Action != null && child.Action.Equals(action))
                 {
-                    current.LastDoneChild = child;
-                    return Redo();
+                    return RedoChild(child);
                 }
             }
             return false;
@@ -195,10 +180,24 @@ namespace TwistNTurn
         UndoNode? marked = null;
 
         public bool IsMarked => marked != null;
-        public bool CanRevert => marked != null && current != marked;
+        public bool CanRevert => marked != null && current != marked && IsDescendantOrSelf(current, marked);
+
+        private static bool IsDescendantOrSelf(UndoNode node, UndoNode potentialAncestor)
+        {
+            UndoNode? cursor = node;
+            while (cursor != null)
+            {
+                if (cursor == potentialAncestor)
+                    return true;
+                cursor = cursor.Parent;
+            }
+            return false;
+        }
 
         public void RevertToMark()
         {
+            if (marked == null || !IsDescendantOrSelf(current, marked))
+                return;
             while (current != marked && CanUndo)
                 Undo();
         }

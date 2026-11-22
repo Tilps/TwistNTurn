@@ -20,7 +20,7 @@ namespace TwistNTurn.Tests
         [TestMethod]
         public void StartVisualSolve_RecordsFrames_Navigates_AndAppliesSolution()
         {
-            var game = new GameService();
+            using var game = new GameService();
             game.LoadPuzzleText(PuzzleCodec.Encode(CreateSquare2x2CornerBlackPuzzle(), 2, 2));
 
             Assert.IsTrue(game.StartVisualSolve());
@@ -52,7 +52,7 @@ namespace TwistNTurn.Tests
         [TestMethod]
         public void DismissVisualSolve_LeavesOriginalBoardUntouched()
         {
-            var game = new GameService();
+            using var game = new GameService();
             game.LoadPuzzleText(PuzzleCodec.Encode(CreateSquare2x2CornerBlackPuzzle(), 2, 2));
 
             Assert.IsTrue(game.StartVisualSolve());

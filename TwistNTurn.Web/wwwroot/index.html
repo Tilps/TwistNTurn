@@ -20,7 +20,7 @@
     <script>
         (function() {
             try {
-                const theme = localStorage.getItem('twistnturn_theme') || 
+                const theme = localStorage.getItem('twistnturn_theme') ||
                     (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
                 document.documentElement.setAttribute('data-theme', theme);
             } catch (_) {}
@@ -46,7 +46,7 @@
                 }
             </style>
             <div class="initial-loader"></div>
-            <div style="font-size:1.15rem;font-weight:600;color:#334155;">Loading Twist 'n' Turn...</div>
+            <div style="font-size:1.15rem;font-weight:600;color:var(--text-primary,#334155);">Loading Twist 'n' Turn...</div>
         </div>
     </div>
 
@@ -57,6 +57,14 @@
     </div>
 
     <script>
+        function safeInvoke(ref, method, ...args) {
+            if (!ref) return;
+            try {
+                const p = ref.invokeMethodAsync(method, ...args);
+                if (p && typeof p.catch === 'function') p.catch(() => {});
+            } catch (_) {}
+        }
+
         window.twistHelpers = {
             copyToClipboard: async (text) => {
                 try {
@@ -67,18 +75,25 @@
                 } catch (_) {}
                 const ta = document.createElement('textarea');
                 ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
                 document.body.appendChild(ta);
-                ta.select();
-                const ok = document.execCommand('copy');
-                document.body.removeChild(ta);
-                return ok;
+                try {
+                    ta.select();
+                    return document.execCommand('copy');
+                } catch (_) {
+                    return false;
+                } finally {
+                    if (ta.parentNode) document.body.removeChild(ta);
+                }
             },
             getUrlHash: () => window.location.hash || '',
             setUrlHash: (hash) => {
+                const base = window.location.pathname + window.location.search;
                 if (history.replaceState) {
-                    history.replaceState(null, null, hash ? '#' + hash : window.location.pathname);
+                    history.replaceState(null, '', hash ? base + '#' + hash : base);
                 } else {
-                    window.location.hash = hash;
+                    window.location.hash = hash || '';
                 }
             },
             getBaseUrl: () => window.location.href.split('#')[0],
@@ -130,8 +145,25 @@
             triggerPrint: () => {
                 window.print();
             },
+            hasPendingPwaUpdate: () => !!window._twistPwaUpdateReady,
             reloadFromServer: async () => {
                 try {
+                    if (window._twistWaitingWorker) {
+                        const waiting = window._twistWaitingWorker;
+                        window._twistWaitingWorker = null;
+                        window._twistPwaUpdateReady = false;
+                        await new Promise(resolve => {
+                            let settled = false;
+                            const finish = () => { if (!settled) { settled = true; resolve(); } };
+                            if ('serviceWorker' in navigator) {
+                                navigator.serviceWorker.addEventListener('controllerchange', finish, { once: true });
+                            }
+                            waiting.postMessage({ type: 'SKIP_WAITING' });
+                            setTimeout(finish, 1500);
+                        });
+                        window.location.reload();
+                        return;
+                    }
                     if ('serviceWorker' in navigator) {
                         const regs = await navigator.serviceWorker.getRegistrations();
                         for (let r of regs) await r.unregister();
@@ -141,38 +173,61 @@
                         for (let k of keys) await caches.delete(k);
                     }
                 } catch (_) {}
-                window.location.reload(true);
+                window.location.reload();
             }
         };
 
         window.registerTwistShortcuts = (dotNetRef) => {
             window._dotNetHomeRef = dotNetRef;
-            window.addEventListener('keydown', (e) => {
-                if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) return;
-                if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
-                    e.preventDefault();
-                    dotNetRef.invokeMethodAsync('OnShortcut', 'undo');
-                } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
-                    e.preventDefault();
-                    dotNetRef.invokeMethodAsync('OnShortcut', 'redo');
-                } else if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) {
-                    e.preventDefault();
-                    dotNetRef.invokeMethodAsync('OnShortcut', 'fix');
-                } else if (e.ctrlKey && (e.key === 'u' || e.key === 'U')) {
-                    e.preventDefault();
-                    dotNetRef.invokeMethodAsync('OnShortcut', 'unfix');
-                } else if (e.ctrlKey && (e.key === 'r' || e.key === 'R')) {
-                    e.preventDefault();
-                    dotNetRef.invokeMethodAsync('OnShortcut', 'revert');
-                } else if (e.ctrlKey && (e.key === 'h' || e.key === 'H')) {
-                    e.preventDefault();
-                    if (e.shiftKey) {
-                        dotNetRef.invokeMethodAsync('OnShortcut', 'dohint');
-                    } else {
-                        dotNetRef.invokeMethodAsync('OnShortcut', 'hint');
-                    }
+            if (window._twistKeydownHandler) {
+                window.removeEventListener('keydown', window._twistKeydownHandler);
+            }
+            window._twistKeydownHandler = (e) => {
+                if (e.key === 'Escape') {
+                    safeInvoke(window._dotNetHomeRef, 'OnShortcut', 'escape');
+                    return;
                 }
-            });
+                if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) return;
+                const mod = e.ctrlKey || e.metaKey;
+                if (!mod) return;
+
+                if (e.key === 'z' || e.key === 'Z') {
+                    e.preventDefault();
+                    safeInvoke(window._dotNetHomeRef, 'OnShortcut', e.shiftKey ? 'redo' : 'undo');
+                } else if (e.key === 'y' || e.key === 'Y') {
+                    e.preventDefault();
+                    safeInvoke(window._dotNetHomeRef, 'OnShortcut', 'redo');
+                } else if (e.key === 'f' || e.key === 'F') {
+                    e.preventDefault();
+                    safeInvoke(window._dotNetHomeRef, 'OnShortcut', 'fix');
+                } else if (e.key === 'u' || e.key === 'U') {
+                    e.preventDefault();
+                    safeInvoke(window._dotNetHomeRef, 'OnShortcut', 'unfix');
+                } else if (e.key === 'r' || e.key === 'R') {
+                    e.preventDefault();
+                    safeInvoke(window._dotNetHomeRef, 'OnShortcut', 'revert');
+                } else if (e.key === 'h' || e.key === 'H') {
+                    e.preventDefault();
+                    safeInvoke(window._dotNetHomeRef, 'OnShortcut', e.shiftKey ? 'dohint' : 'hint');
+                }
+            };
+            window.addEventListener('keydown', window._twistKeydownHandler);
+
+            if (window._twistPwaUpdateReady) {
+                safeInvoke(dotNetRef, 'OnPwaUpdateAvailable');
+            }
+        };
+
+        window.disposeTwistBoard = () => {
+            window._dotNetHomeRef = null;
+            if (window._twistKeydownHandler) {
+                window.removeEventListener('keydown', window._twistKeydownHandler);
+                window._twistKeydownHandler = null;
+            }
+            if (window._twistWindowPointerUpHandler) {
+                window.removeEventListener('pointerup', window._twistWindowPointerUpHandler);
+                window._twistWindowPointerUpHandler = null;
+            }
         };
 
         if (!window._twistGlobalTouchInit) {
@@ -188,11 +243,11 @@
 
         window.initTwistBoard = (svgId, dotNetRef) => {
             const svg = document.getElementById(svgId);
-            if (!svg) return;
+            if (!svg) return false;
 
             window._dotNetHomeRef = dotNetRef;
             svg._dotNetRef = dotNetRef;
-            if (svg._twistInitialized) return;
+            if (svg._twistInitialized) return true;
             svg._twistInitialized = true;
 
             const activePointers = new Map();
@@ -208,13 +263,36 @@
             let firstTouchDispatched = false;
             let firstTouchMovedDist = 0;
 
+            let pendingMoveCoords = null;
+            let moveRafId = null;
+
+            function flushPendingMove() {
+                moveRafId = null;
+                if (!pendingMoveCoords) return;
+                const coords = pendingMoveCoords;
+                pendingMoveCoords = null;
+                safeInvoke(svg._dotNetRef, 'OnSvgPointerMove', coords.x, coords.y);
+            }
+
+            function resetPinchBaseline() {
+                if (activePointers.size >= 2) {
+                    const pts = Array.from(activePointers.values());
+                    pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                    pinchStartMidX = (pts[0].x + pts[1].x) / 2;
+                    pinchStartMidY = (pts[0].y + pts[1].y) / 2;
+                } else {
+                    pinchStartDist = 0;
+                }
+            }
+
             function getSvgCoords(e) {
                 let pt = svg.createSVGPoint();
                 pt.x = e.clientX;
                 pt.y = e.clientY;
                 let ctm = svg.getScreenCTM();
-                if (!ctm) return null;
+                if (!ctm || !ctm.a || !ctm.d) return null;
                 let p = pt.matrixTransform(ctm.inverse());
+                if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
                 return { x: p.x, y: p.y };
             }
 
@@ -225,7 +303,6 @@
 
                 const isTouch = e.pointerType === 'touch';
                 const touchCount = window._twistTouchCount || 0;
-                // If 2+ fingers are already known to be touching down:
                 const alreadyMultipleFingers = isTouch && (activePointers.size > 1 || touchCount >= 2 || !e.isPrimary);
 
                 if (activePointers.size === 1) {
@@ -237,7 +314,6 @@
                     }
 
                     if (alreadyMultipleFingers) {
-                        // Already 2+ fingers down: do not trigger single-finger puzzle edit
                         firstTouchDispatched = false;
                         return;
                     }
@@ -254,32 +330,20 @@
                         firstTouchMovedDist = 0;
                     }
 
-                    if (svg._dotNetRef) {
-                        svg._dotNetRef.invokeMethodAsync('OnSvgPointerDown', coords.x, coords.y, e.button, e.shiftKey, e.ctrlKey || e.metaKey, e.altKey);
-                    }
+                    safeInvoke(svg._dotNetRef, 'OnSvgPointerDown', coords.x, coords.y, e.button, e.shiftKey, e.ctrlKey || e.metaKey, e.altKey);
                 } else if (activePointers.size === 2) {
                     const elapsed = performance.now() - firstTouchTime;
-
-                    // If second finger lands almost immediately (<= 300ms),
-                    // or within 600ms while remaining stationary (moved <= 20px),
-                    // revert the first speculative touch modification!
                     const isStationary = firstTouchMovedDist <= 20;
                     const shouldRevert = firstTouchDispatched && (elapsed <= 300 || (elapsed <= 600 && isStationary));
 
-                    if (svg._dotNetRef) {
-                        if (shouldRevert) {
-                            svg._dotNetRef.invokeMethodAsync('OnRevertFirstTouch');
-                        } else {
-                            svg._dotNetRef.invokeMethodAsync('OnSvgPointerUp');
-                        }
+                    if (shouldRevert) {
+                        safeInvoke(svg._dotNetRef, 'OnRevertFirstTouch');
+                    } else {
+                        safeInvoke(svg._dotNetRef, 'OnSvgPointerUp');
                     }
 
                     firstTouchDispatched = false;
-
-                    const pts = Array.from(activePointers.values());
-                    pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-                    pinchStartMidX = (pts[0].x + pts[1].x) / 2;
-                    pinchStartMidY = (pts[0].y + pts[1].y) / 2;
+                    resetPinchBaseline();
                 }
             };
 
@@ -294,9 +358,8 @@
                         lastMouseX = e.clientX;
                         lastMouseY = e.clientY;
                         let ctm = svg.getScreenCTM();
-                        let svgDx = ctm ? (dx / ctm.a) : dx;
-                        let svgDy = ctm ? (dy / ctm.d) : dy;
-                        if (svg._dotNetRef) svg._dotNetRef.invokeMethodAsync('OnPan', svgDx, svgDy);
+                        if (!ctm || !ctm.a || !ctm.d) return;
+                        safeInvoke(svg._dotNetRef, 'OnPan', dx / ctm.a, dy / ctm.d);
                         return;
                     }
 
@@ -310,8 +373,9 @@
                     if (e.buttons === 0) return;
                     let coords = getSvgCoords(e);
                     if (!coords) return;
-                    if (svg._dotNetRef) {
-                        svg._dotNetRef.invokeMethodAsync('OnSvgPointerMove', coords.x, coords.y);
+                    pendingMoveCoords = coords;
+                    if (moveRafId === null) {
+                        moveRafId = requestAnimationFrame(flushPendingMove);
                     }
                 } else if (activePointers.size === 2) {
                     const pts = Array.from(activePointers.values());
@@ -323,12 +387,9 @@
                     const dx = currentMidX - pinchStartMidX;
                     const dy = currentMidY - pinchStartMidY;
                     let ctm = svg.getScreenCTM();
-                    let svgDx = ctm ? (dx / ctm.a) : dx;
-                    let svgDy = ctm ? (dy / ctm.d) : dy;
+                    if (!ctm || !ctm.a || !ctm.d) return;
 
-                    if (svg._dotNetRef) {
-                        svg._dotNetRef.invokeMethodAsync('OnTwoFingerPanZoom', svgDx, svgDy, scale);
-                    }
+                    safeInvoke(svg._dotNetRef, 'OnTwoFingerPanZoom', dx / ctm.a, dy / ctm.d, scale);
 
                     pinchStartDist = currentDist;
                     pinchStartMidX = currentMidX;
@@ -337,15 +398,18 @@
             };
 
             const onPointerEnd = (e) => {
+                const tracked = activePointers.has(e.pointerId);
+                if (!tracked && !isMiddlePanning) return;
+
                 try { svg.releasePointerCapture(e.pointerId); } catch (_) {}
-                if (activePointers.has(e.pointerId)) {
+                if (tracked) {
                     activePointers.delete(e.pointerId);
                 }
 
                 if (e.type === 'pointercancel' && e.pointerId === firstTouchPointerId && firstTouchDispatched) {
                     const elapsed = performance.now() - firstTouchTime;
                     if (elapsed <= 600 && firstTouchMovedDist <= 20) {
-                        if (svg._dotNetRef) svg._dotNetRef.invokeMethodAsync('OnRevertFirstTouch');
+                        safeInvoke(svg._dotNetRef, 'OnRevertFirstTouch');
                     }
                 }
 
@@ -358,46 +422,59 @@
                 }
                 if (activePointers.size === 0) {
                     isMiddlePanning = false;
-                    if (svg._dotNetRef) svg._dotNetRef.invokeMethodAsync('OnSvgPointerUp');
-                } else if (activePointers.size === 1) {
-                    pinchStartDist = 0;
+                    pendingMoveCoords = null;
+                    if (moveRafId !== null) {
+                        cancelAnimationFrame(moveRafId);
+                        moveRafId = null;
+                    }
+                    safeInvoke(svg._dotNetRef, 'OnSvgPointerUp');
+                } else {
+                    resetPinchBaseline();
                 }
             };
 
             svg.onpointerup = onPointerEnd;
             svg.onpointercancel = onPointerEnd;
-            if (svg._windowPointerUpHandler) {
-                window.removeEventListener('pointerup', svg._windowPointerUpHandler);
+            if (window._twistWindowPointerUpHandler) {
+                window.removeEventListener('pointerup', window._twistWindowPointerUpHandler);
             }
-            svg._windowPointerUpHandler = onPointerEnd;
+            window._twistWindowPointerUpHandler = onPointerEnd;
             window.addEventListener('pointerup', onPointerEnd);
 
             svg.onwheel = (e) => {
                 e.preventDefault();
-                if (window._twistWheelMode === 'undoredo' && !e.ctrlKey) {
-                    if (svg._dotNetRef) svg._dotNetRef.invokeMethodAsync('OnWheelUndoRedo', e.deltaY);
+                if (window._twistWheelMode === 'undoredo' && !e.ctrlKey && !e.metaKey) {
+                    safeInvoke(svg._dotNetRef, 'OnWheelUndoRedo', e.deltaY);
                     return;
                 }
                 let factor = e.deltaY < 0 ? 1.15 : 0.87;
-                if (svg._dotNetRef) svg._dotNetRef.invokeMethodAsync('OnWheelZoom', factor);
+                safeInvoke(svg._dotNetRef, 'OnWheelZoom', factor);
             };
 
             svg.oncontextmenu = (e) => {
                 e.preventDefault();
             };
+            return true;
         };
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
+                const notifyUpdate = (worker) => {
+                    window._twistPwaUpdateReady = true;
+                    window._twistWaitingWorker = worker;
+                    safeInvoke(window._dotNetHomeRef, 'OnPwaUpdateAvailable');
+                };
+
                 navigator.serviceWorker.register('service-worker.js').then(reg => {
+                    if (reg.waiting && navigator.serviceWorker.controller) {
+                        notifyUpdate(reg.waiting);
+                    }
                     reg.addEventListener('updatefound', () => {
                         const newWorker = reg.installing;
                         if (!newWorker) return;
                         newWorker.addEventListener('statechange', () => {
                             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                if (window._dotNetHomeRef) {
-                                    window._dotNetHomeRef.invokeMethodAsync('OnPwaUpdateAvailable');
-                                }
+                                notifyUpdate(newWorker);
                             }
                         });
                     });

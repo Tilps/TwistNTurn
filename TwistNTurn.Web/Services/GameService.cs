@@ -20,6 +20,11 @@ namespace TwistNTurn.Web.Services
         public string SizeText { get; set; } = "10x10";
         public int Difficulty { get; set; } = 1; // Easy
 
+        // Active puzzle geometry metadata (independent of pending form edits)
+        public int ActiveWidth { get; private set; }
+        public int ActiveHeight { get; private set; }
+        public MeshType ActiveType => CurrentMesh?.MeshType ?? CurrentType;
+
         public bool DisallowFalseMove { get; set; } = false;
         public bool ShowCellColors { get; set; } = false;
 
@@ -35,7 +40,13 @@ namespace TwistNTurn.Web.Services
         }
 
         // Phase 2 Settings
-        public int AutoMoveLevel { get; set; } = 0; // 0 = Off, 1..3 = Depth 1..3, 4 = Full Cascade
+        private int autoMoveLevel = 0;
+        public int AutoMoveLevel
+        {
+            get => autoMoveLevel;
+            set => autoMoveLevel = Math.Clamp(value, 0, 4);
+        }
+
         public bool AutoMoveConsiderMultipleLoops { get; set; } = true;
         public bool AutoMoveUseColoring { get; set; } = false;
         public bool AutoStart { get; set; } = false;
@@ -43,16 +54,31 @@ namespace TwistNTurn.Web.Services
         public bool ShowClock { get; set; } = true;
 
         // Generator Overrides
-        public double GenerateLengthFraction { get; set; } = 0.5;
-        public double GenerateBoringFraction { get; set; } = 0.01;
+        private double generateLengthFraction = 0.5;
+        public double GenerateLengthFraction
+        {
+            get => generateLengthFraction;
+            set => generateLengthFraction = double.IsFinite(value) ? Math.Clamp(value, 0.25, 0.75) : 0.5;
+        }
+
+        private double generateBoringFraction = 0.01;
+        public double GenerateBoringFraction
+        {
+            get => generateBoringFraction;
+            set => generateBoringFraction = double.IsFinite(value) ? Math.Clamp(value, 0.0, 0.20) : 0.01;
+        }
+
         public GeneratorSolverMode SolverModeOverride { get; set; } = GeneratorSolverMode.Auto;
 
         public bool IsGenerating { get; private set; }
+        public bool IsBusy { get; private set; }
+        public string? BusyMessage { get; private set; }
         public int PrunedProgress { get; private set; }
         public int TotalIntersections { get; private set; }
 
+        private TimeSpan? solvedElapsed;
         public DateTime? StartTime { get; private set; }
-        public TimeSpan ElapsedTime => StartTime.HasValue ? DateTime.UtcNow - StartTime.Value : TimeSpan.Zero;
+        public TimeSpan ElapsedTime => solvedElapsed ?? (StartTime.HasValue ? DateTime.UtcNow - StartTime.Value : TimeSpan.Zero);
         public bool IsSolved { get; private set; }
         public bool WasAutoSolved { get; private set; }
 
@@ -79,11 +105,18 @@ namespace TwistNTurn.Web.Services
             : null;
 
         public event Action? OnStateChanged;
+        public event Action? OnBoardPersistedStateChanged;
 
         public bool CanUndo => UndoTree.CanUndo;
         public bool CanRedo => UndoTree.CanRedo;
 
         public void NotifyChanged()
+        {
+            OnStateChanged?.Invoke();
+            OnBoardPersistedStateChanged?.Invoke();
+        }
+
+        public void NotifyVisualChanged()
         {
             OnStateChanged?.Invoke();
         }
@@ -102,18 +135,34 @@ namespace TwistNTurn.Web.Services
 
         private static CancellationToken ResetTokenSource(ref CancellationTokenSource? cts)
         {
-            cts?.Cancel();
-            cts?.Dispose();
-            cts = new CancellationTokenSource();
-            return cts.Token;
+            var previous = cts;
+            var next = new CancellationTokenSource();
+            cts = next;
+            if (previous != null)
+            {
+                previous.Cancel();
+                previous.Dispose();
+            }
+            return next.Token;
         }
 
-        private async Task ClearAfterDelayAsync(int delayMs, CancellationToken token, Action clearAction)
+        private static void CancelAndDispose(ref CancellationTokenSource? cts)
+        {
+            var previous = cts;
+            cts = null;
+            if (previous != null)
+            {
+                previous.Cancel();
+                previous.Dispose();
+            }
+        }
+
+        private static async Task ClearAfterDelayAsync(int delayMs, Action clearAction, CancellationToken cancellationToken)
         {
             try
             {
-                await Task.Delay(delayMs, token);
-                if (!token.IsCancellationRequested)
+                await Task.Delay(delayMs, cancellationToken);
+                if (!cancellationToken.IsCancellationRequested)
                 {
                     clearAction();
                 }
@@ -122,16 +171,25 @@ namespace TwistNTurn.Web.Services
             {
                 // Expected when superseded or cleared early
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Transient clear error: {ex.Message}");
+            }
+        }
+
+        private void ClearHintInternal()
+        {
+            hintFlashCts?.Cancel();
+            hintMessageCts?.Cancel();
+            HintEdgeIndex = null;
+            HintMessage = null;
         }
 
         private void ClearTransientBoardState()
         {
             invalidFlashCts?.Cancel();
-            hintFlashCts?.Cancel();
-            hintMessageCts?.Cancel();
+            ClearHintInternal();
             InvalidEdgeIndex = null;
-            HintEdgeIndex = null;
-            HintMessage = null;
             PendingGroupEdgeIndex = null;
             CurrentAnalysis = null;
             preVictoryMarkedEdges = null;
@@ -148,75 +206,101 @@ namespace TwistNTurn.Web.Services
             }
             generationCts?.Cancel();
             IsGenerating = false;
-            NotifyChanged();
+            GenerationStartTime = null;
+            NotifyVisualChanged();
         }
 
         public async Task GenerateNewPuzzleAsync()
         {
-            if (IsGenerating) return;
+            if (IsGenerating || IsBusy) return;
 
-            var token = ResetTokenSource(ref generationCts);
+            var myCts = new CancellationTokenSource();
+            var previous = generationCts;
+            generationCts = myCts;
+            if (previous != null)
+            {
+                previous.Cancel();
+            }
+            var token = myCts.Token;
 
+            DismissVisualSolveInternal();
             IsGenerating = true;
             GenerationStartTime = DateTime.UtcNow;
-            IsSolved = false;
-            WasAutoSolved = false;
-            ClearTransientBoardState();
             PrunedProgress = 0;
             TotalIntersections = 0;
-            NotifyChanged();
+            NotifyVisualChanged();
 
-            // Allow UI to render the loading overlay before computation begins
-            await Task.Delay(20);
-
-            int width, height;
-            if (!PuzzleHelper.ParseSize(SizeText, CurrentType, out width, out height))
-            {
-                PuzzleHelper.GetDefaultSize(CurrentType, out width, out height);
-                SizeText = $"{width}x{height}";
-            }
-
+            bool generatedNewBoard = false;
             try
             {
-                Mesh mesh = PuzzleHelper.MakeMesh(width, height, CurrentType, Difficulty);
+                // Allow UI to render the loading overlay before computation begins
+                await Task.Delay(20, token);
+
+                MeshType targetType = CurrentType;
+                int width, height;
+                if (!PuzzleHelper.ParseSize(SizeText, targetType, out width, out height))
+                {
+                    PuzzleHelper.GetDefaultSize(targetType, out width, out height);
+                    SizeText = $"{width}x{height}";
+                }
+
+                Mesh mesh = PuzzleHelper.MakeMesh(width, height, targetType, Difficulty);
                 ApplyGeneratorOverrides(mesh);
                 generatingMesh = mesh;
                 TotalIntersections = mesh.Intersections.Count;
-                NotifyChanged();
+                NotifyVisualChanged();
 
                 var progress = new Progress<int>(p =>
                 {
-                    PrunedProgress = p;
-                    NotifyChanged();
+                    if (ReferenceEquals(generationCts, myCts))
+                    {
+                        PrunedProgress = p;
+                        NotifyVisualChanged();
+                    }
                 });
 
                 await mesh.GenerateAsync(progress, token);
 
-                if (!token.IsCancellationRequested && !mesh.AbortPrune)
+                if (!token.IsCancellationRequested && !mesh.AbortPrune && ReferenceEquals(generationCts, myCts))
                 {
                     CurrentMesh = mesh;
+                    ActiveWidth = width;
+                    ActiveHeight = height;
                     MarkedEdges.Clear();
                     UndoTree = new UndoTree();
                     ApplyAutoStartIfEnabled(mesh);
                     StartTime = DateTime.UtcNow;
+                    solvedElapsed = null;
                     IsSolved = false;
                     WasAutoSolved = false;
                     ClearTransientBoardState();
                     CheckSolution();
+                    generatedNewBoard = true;
                 }
             }
             catch (OperationCanceledException)
             {
                 // Gracefully cancelled by user
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Puzzle generation error: {ex.Message}");
+            }
             finally
             {
-                generatingMesh = null;
-                generationCts?.Dispose();
-                generationCts = null;
-                GenerationStartTime = null;
-                IsGenerating = false;
-                NotifyChanged();
+                if (ReferenceEquals(generationCts, myCts))
+                {
+                    generatingMesh = null;
+                    generationCts = null;
+                    GenerationStartTime = null;
+                    IsGenerating = false;
+                }
+                myCts.Dispose();
+
+                if (generatedNewBoard)
+                    NotifyChanged();
+                else
+                    NotifyVisualChanged();
             }
         }
 
@@ -292,7 +376,7 @@ namespace TwistNTurn.Web.Services
             GenerateLengthFraction = prefs.GenerateLengthFraction;
             GenerateBoringFraction = prefs.GenerateBoringFraction;
             SolverModeOverride = Enum.IsDefined(prefs.SolverModeOverride) ? prefs.SolverModeOverride : GeneratorSolverMode.Auto;
-            NotifyChanged();
+            NotifyVisualChanged();
         }
 
         public void ResetPreferencesToDefaults()
@@ -302,27 +386,27 @@ namespace TwistNTurn.Web.Services
 
         public bool HandleEdgeGroupingClick(int edgeIndex, bool sameLoop)
         {
-            if (CurrentMesh == null || IsGenerating || edgeIndex < 0 || edgeIndex >= CurrentMesh.Edges.Count)
+            if (CurrentMesh == null || IsGenerating || IsBusy || edgeIndex < 0 || edgeIndex >= CurrentMesh.Edges.Count)
                 return false;
 
             bool dismissedVisual = DismissVisualSolveInternal();
             if (!ShowEdgeColors || MarkedEdges.Contains(edgeIndex))
             {
-                if (dismissedVisual) NotifyChanged();
+                if (dismissedVisual) NotifyVisualChanged();
                 return false;
             }
 
             if (PendingGroupEdgeIndex is not int firstEdge)
             {
                 PendingGroupEdgeIndex = edgeIndex;
-                NotifyChanged();
+                NotifyVisualChanged();
                 return true;
             }
 
             PendingGroupEdgeIndex = null;
             if (firstEdge == edgeIndex)
             {
-                NotifyChanged();
+                NotifyVisualChanged();
                 return true;
             }
 
@@ -330,12 +414,11 @@ namespace TwistNTurn.Web.Services
             if (UndoTree.Do(action))
             {
                 InvalidEdgeIndex = null;
-                NotifyChanged();
+                NotifyVisualChanged();
                 return true;
             }
 
             FlashInvalidEdge(edgeIndex);
-            NotifyChanged();
             return false;
         }
 
@@ -344,7 +427,7 @@ namespace TwistNTurn.Web.Services
             if (PendingGroupEdgeIndex.HasValue)
             {
                 PendingGroupEdgeIndex = null;
-                NotifyChanged();
+                NotifyVisualChanged();
             }
         }
 
@@ -356,15 +439,34 @@ namespace TwistNTurn.Web.Services
 
         public string? ExportSquareAscii() => CurrentMesh != null ? PuzzleFormatHelper.ExportSquareAscii(CurrentMesh) : null;
 
+        public string GetShareCode()
+        {
+            if (CurrentMesh == null) return string.Empty;
+
+            if (ActiveWidth > 0 && ActiveHeight > 0)
+            {
+                return PuzzleCodec.Encode(CurrentMesh, ActiveWidth, ActiveHeight);
+            }
+
+            if (PuzzleFormatHelper.TryGetSquareDimensions(CurrentMesh, out int sw, out int sh))
+            {
+                return PuzzleCodec.Encode(CurrentMesh, sw, sh);
+            }
+
+            return PuzzleCompression.CompressToUrlSafe(CurrentMesh.SaveToString());
+        }
+
         public bool ImportPuzzle(string rawInput, out string detectedFormat)
         {
             detectedFormat = string.Empty;
-            if (IsGenerating || !PuzzleFormatHelper.TryParsePuzzle(rawInput, out Mesh? mesh, out detectedFormat, out int w, out int h) || mesh == null)
+            if (IsGenerating || IsBusy || !PuzzleFormatHelper.TryParsePuzzle(rawInput, out Mesh? mesh, out detectedFormat, out int w, out int h) || mesh == null)
                 return false;
 
             mesh.RecalculateCounts();
             CurrentMesh = mesh;
             CurrentType = mesh.MeshType;
+            ActiveWidth = w;
+            ActiveHeight = h;
             if (w > 0 && h > 0)
             {
                 SizeText = $"{w}x{h}";
@@ -375,6 +477,7 @@ namespace TwistNTurn.Web.Services
             UndoTree = new UndoTree();
             MarkedEdges.Clear();
             StartTime = DateTime.UtcNow;
+            solvedElapsed = null;
             IsSolved = false;
             WasAutoSolved = false;
             ClearTransientBoardState();
@@ -384,116 +487,46 @@ namespace TwistNTurn.Web.Services
             return true;
         }
 
-        private static Mesh CreateFullSolverMesh(Mesh source)
-        {
-            var solver = new Mesh(source);
-            solver.ConsiderMultipleLoops = true;
-            solver.IterativeRecMaxDepth = 1;
-            solver.SolverMethod = SolverMethod.Recursive;
-            solver.UseCellColoring = true;
-            solver.UseCellColoringTrials = true;
-            solver.UseColoring = true;
-            solver.UseEdgeRestricts = true;
-            solver.UseDerivedColoring = true;
-            solver.UseMerging = true;
-            solver.UseCellPairs = true;
-            solver.UseCellPairsTopLevel = true;
-            return solver;
-        }
-
         public PuzzleAnalysisResult? AnalyzeCurrentPuzzle()
         {
             if (CurrentMesh == null || IsGenerating) return null;
 
-            int whitePearls = 0;
-            int blackPearls = 0;
-            foreach (var inter in CurrentMesh.Intersections)
-            {
-                if (inter.Type == IntersType.Twist) whitePearls++;
-                else if (inter.Type == IntersType.Turn) blackPearls++;
-            }
-            int totalIntersections = CurrentMesh.Intersections.Count;
-            int edgeCount = CurrentMesh.Edges.Count;
-
-            Mesh solver = CreateFullSolverMesh(CurrentMesh);
-            solver.Clear();
-
-            SolveState fullResult = solver.TrySolve();
-            if (fullResult == SolveState.MultipleSolutions)
-            {
-                CurrentAnalysis = new PuzzleAnalysisResult("Multiple Solutions", "Non-unique", 0, whitePearls, blackPearls, totalIntersections, edgeCount);
-                NotifyChanged();
-                return CurrentAnalysis;
-            }
-            if (fullResult != SolveState.Solved)
-            {
-                CurrentAnalysis = new PuzzleAnalysisResult("No Solution", "Unsolvable", 0, whitePearls, blackPearls, totalIntersections, edgeCount);
-                NotifyChanged();
-                return CurrentAnalysis;
-            }
-
-            // RecursiveTrySolve pushes a base frame before checking trials, so branch count is Length - 1.
-            int branchDepth = Math.Max(0, (solver.DepthPatern?.Length ?? 0) - 1);
-            string tier = $"Recursive Search (F, Depth {branchDepth})";
-            int? lookaheadDepth = null;
-
-            solver.Clear();
-            solver.SetRatingCodeOptions("S");
-            if (solver.TrySolve() == SolveState.Solved)
-            {
-                int min = -1;
-                int max = solver.Edges.Count;
-                while (min < max - 1)
-                {
-                    int mid = (min + max) / 2;
-                    solver.Clear();
-                    solver.IterativeSolverDepth = mid;
-                    if (solver.TrySolve() == SolveState.Solved)
-                        max = mid;
-                    else
-                        min = mid;
-                }
-                lookaheadDepth = max;
-                tier = max == 0 ? "Direct Deductions (S0)" : $"Iterative Lookahead (S{max})";
-            }
-            else
-            {
-                (string code, string label)[] tiers =
-                [
-                    ("SC", "Edge Coloring (SC)"),
-                    ("SC+", "Derived Coloring (SC+)"),
-                    ("SCE", "Edge Restrictions (SCE)"),
-                    ("SCOM", "Cell Coloring & Merging (SCOM)")
-                ];
-                foreach (var (code, label) in tiers)
-                {
-                    solver.Clear();
-                    solver.SetRatingCodeOptions(code);
-                    if (solver.TrySolve() == SolveState.Solved)
-                    {
-                        tier = label;
-                        break;
-                    }
-                }
-            }
-
-            CurrentAnalysis = new PuzzleAnalysisResult("Unique Solution", tier, branchDepth, whitePearls, blackPearls, totalIntersections, edgeCount, lookaheadDepth);
-            NotifyChanged();
+            CurrentAnalysis = PuzzleHelper.AnalyzePuzzle(CurrentMesh);
+            NotifyVisualChanged();
             return CurrentAnalysis;
         }
 
-        public void ToggleEdge(int edgeIndex, bool isAlternative)
+        public async Task<PuzzleAnalysisResult?> AnalyzeCurrentPuzzleAsync()
         {
-            if (CurrentMesh == null || edgeIndex < 0 || edgeIndex >= CurrentMesh.Edges.Count)
-                return;
+            if (CurrentMesh == null || IsGenerating || IsBusy) return null;
+            IsBusy = true;
+            BusyMessage = "Analyzing puzzle...";
+            NotifyVisualChanged();
+            try
+            {
+                await Task.Delay(20);
+                return AnalyzeCurrentPuzzle();
+            }
+            finally
+            {
+                IsBusy = false;
+                BusyMessage = null;
+                NotifyVisualChanged();
+            }
+        }
+
+        public bool ToggleEdge(int edgeIndex, bool isAlternative)
+        {
+            if (CurrentMesh == null || IsGenerating || IsBusy || edgeIndex < 0 || edgeIndex >= CurrentMesh.Edges.Count)
+                return false;
 
             PendingGroupEdgeIndex = null;
             bool dismissedVisual = DismissVisualSolveInternal();
 
             if (MarkedEdges.Contains(edgeIndex))
             {
-                if (dismissedVisual) NotifyChanged();
-                return;
+                if (dismissedVisual) NotifyVisualChanged();
+                return false;
             }
 
             EdgeState next = PuzzleEdgeAction.NextState(CurrentMesh.Edges[edgeIndex].State, isAlternative);
@@ -508,26 +541,26 @@ namespace TwistNTurn.Web.Services
                 HintEdgeIndex = null;
                 CheckSolution();
                 NotifyChanged();
+                return true;
             }
-            else
-            {
-                if (dismissedVisual) NotifyChanged();
-                if (DisallowFalseMove)
-                    FlashInvalidEdge(edgeIndex);
-            }
+
+            if (dismissedVisual) NotifyVisualChanged();
+            if (DisallowFalseMove)
+                FlashInvalidEdge(edgeIndex);
+            return false;
         }
 
-        public void SetEdgeDirect(int edgeIndex, EdgeState targetState)
+        public bool SetEdgeDirect(int edgeIndex, EdgeState targetState)
         {
-            if (CurrentMesh == null || edgeIndex < 0 || edgeIndex >= CurrentMesh.Edges.Count)
-                return;
+            if (CurrentMesh == null || IsGenerating || IsBusy || edgeIndex < 0 || edgeIndex >= CurrentMesh.Edges.Count)
+                return false;
 
             bool dismissedVisual = DismissVisualSolveInternal();
 
             if (MarkedEdges.Contains(edgeIndex) || CurrentMesh.Edges[edgeIndex].State == targetState)
             {
-                if (dismissedVisual) NotifyChanged();
-                return;
+                if (dismissedVisual) NotifyVisualChanged();
+                return false;
             }
 
             int autoMove = GetEffectiveAutoMoveDepth(CurrentMesh);
@@ -541,34 +574,34 @@ namespace TwistNTurn.Web.Services
                 HintEdgeIndex = null;
                 CheckSolution();
                 NotifyChanged();
+                return true;
             }
-            else
-            {
-                if (dismissedVisual) NotifyChanged();
-                if (DisallowFalseMove)
-                    FlashInvalidEdge(edgeIndex);
-            }
+
+            if (dismissedVisual) NotifyVisualChanged();
+            if (DisallowFalseMove)
+                FlashInvalidEdge(edgeIndex);
+            return false;
         }
 
-        public void ToggleCellColor(int cellIndex, bool isAlternative)
+        public bool ToggleCellColor(int cellIndex, bool isAlternative)
         {
-            if (CurrentMesh == null || cellIndex < 0 || cellIndex >= CurrentMesh.Cells.Count)
-                return;
+            if (CurrentMesh == null || IsGenerating || IsBusy || cellIndex < 0 || cellIndex >= CurrentMesh.Cells.Count)
+                return false;
 
             bool dismissedVisual = DismissVisualSolveInternal();
             var action = new PuzzleCellColorAction(CurrentMesh, cellIndex, isAlternative);
             if (UndoTree.Do(action))
             {
                 NotifyChanged();
+                return true;
             }
-            else if (dismissedVisual)
-            {
-                NotifyChanged();
-            }
+            if (dismissedVisual) NotifyVisualChanged();
+            return false;
         }
 
         public void Undo()
         {
+            if (IsGenerating || IsBusy) return;
             bool dismissedVisual = DismissVisualSolveInternal();
             if (UndoTree.CanUndo)
             {
@@ -579,12 +612,13 @@ namespace TwistNTurn.Web.Services
             }
             else if (dismissedVisual)
             {
-                NotifyChanged();
+                NotifyVisualChanged();
             }
         }
 
         public bool UndoAndForget()
         {
+            if (IsGenerating || IsBusy) return false;
             bool dismissedVisual = DismissVisualSolveInternal();
             if (UndoTree.CanUndo && UndoTree.UndoAndForget())
             {
@@ -593,12 +627,13 @@ namespace TwistNTurn.Web.Services
                 NotifyChanged();
                 return true;
             }
-            if (dismissedVisual) NotifyChanged();
+            if (dismissedVisual) NotifyVisualChanged();
             return false;
         }
 
         public void Redo()
         {
+            if (IsGenerating || IsBusy) return;
             bool dismissedVisual = DismissVisualSolveInternal();
             if (UndoTree.CanRedo)
             {
@@ -609,13 +644,13 @@ namespace TwistNTurn.Web.Services
             }
             else if (dismissedVisual)
             {
-                NotifyChanged();
+                NotifyVisualChanged();
             }
         }
 
         public void Fix()
         {
-            if (CurrentMesh == null) return;
+            if (CurrentMesh == null || IsGenerating || IsBusy) return;
             DismissVisualSolveInternal();
             MarkedEdges.Clear();
             for (int i = 0; i < CurrentMesh.Edges.Count; i++)
@@ -629,17 +664,28 @@ namespace TwistNTurn.Web.Services
 
         public void Unfix()
         {
+            if (IsGenerating || IsBusy) return;
             DismissVisualSolveInternal();
             MarkedEdges.Clear();
             UndoTree.ClearMark();
+            preVictoryMarkedEdges = null;
+            preVictoryUndoMark = null;
+            preVictoryUndoTree = null;
             CheckSolution();
             NotifyChanged();
         }
 
         public void RevertToFix()
         {
-            DismissVisualSolveInternal();
+            if (IsGenerating || IsBusy) return;
+            bool dismissedVisual = DismissVisualSolveInternal();
+            if (!UndoTree.CanRevert)
+            {
+                if (dismissedVisual) NotifyVisualChanged();
+                return;
+            }
             UndoTree.RevertToMark();
+            WasAutoSolved = UndoTree.CurrentAction is PuzzleBatchSolveAction;
             CheckSolution();
             NotifyChanged();
         }
@@ -656,6 +702,10 @@ namespace TwistNTurn.Web.Services
             bool currentlySolved = PuzzleHelper.CheckIsSolved(CurrentMesh);
             if (currentlySolved && !IsSolved)
             {
+                if (StartTime.HasValue)
+                {
+                    solvedElapsed = DateTime.UtcNow - StartTime.Value;
+                }
                 preVictoryMarkedEdges = MarkedEdges.ToArray();
                 preVictoryUndoMark = UndoTree.GetMarkedDirect();
                 preVictoryUndoTree = UndoTree;
@@ -665,6 +715,11 @@ namespace TwistNTurn.Web.Services
             else if (!currentlySolved && IsSolved)
             {
                 IsSolved = false;
+                if (solvedElapsed.HasValue)
+                {
+                    StartTime = DateTime.UtcNow - solvedElapsed.Value;
+                    solvedElapsed = null;
+                }
                 if (preVictoryMarkedEdges != null && ReferenceEquals(preVictoryUndoTree, UndoTree))
                 {
                     MarkedEdges = [.. preVictoryMarkedEdges];
@@ -692,12 +747,19 @@ namespace TwistNTurn.Web.Services
                 cellColors[i] = CurrentMesh.Cells[i].Color;
             }
 
-            PuzzleHelper.ParseSize(SizeText, CurrentType, out int w, out int h);
-            string puzzleEncoded = PuzzleCodec.Encode(CurrentMesh, w, h);
+            string puzzleSerialized = (ActiveWidth > 0 && ActiveHeight > 0)
+                ? PuzzleCodec.Encode(CurrentMesh, ActiveWidth, ActiveHeight)
+                : (PuzzleFormatHelper.TryGetSquareDimensions(CurrentMesh, out int sw, out int sh)
+                    ? PuzzleCodec.Encode(CurrentMesh, sw, sh)
+                    : CurrentMesh.SaveToString());
+
+            string activeSize = (ActiveWidth > 0 && ActiveHeight > 0)
+                ? $"{ActiveWidth}x{ActiveHeight}"
+                : SizeText;
 
             return new SavedGameState
             {
-                Puzzle = puzzleEncoded,
+                Puzzle = puzzleSerialized,
                 EdgeStates = edgeStates,
                 CellColors = cellColors,
                 MarkedEdges = MarkedEdges.ToArray(),
@@ -706,8 +768,8 @@ namespace TwistNTurn.Web.Services
                 WasAutoSolved = WasAutoSolved,
                 DisallowFalseMove = DisallowFalseMove,
                 ShowCellColors = ShowCellColors,
-                Type = CurrentType.ToString(),
-                Size = SizeText,
+                Type = ActiveType.ToString(),
+                Size = activeSize,
                 Difficulty = Difficulty
             };
         }
@@ -721,40 +783,76 @@ namespace TwistNTurn.Web.Services
             }
 
             isDecoded = false;
-            var lines = data.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries);
-            mesh = new Mesh(0, 0, MeshType.Square);
-            if (!mesh.LoadFromText(lines))
+            width = 0;
+            height = 0;
+            try
+            {
+                var lines = data.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries);
+                mesh = new Mesh(0, 0, MeshType.Square);
+                if (!mesh.LoadFromText(lines))
+                {
+                    mesh = null;
+                    return false;
+                }
+                if (PuzzleFormatHelper.TryGetSquareDimensions(mesh, out int sw, out int sh))
+                {
+                    width = sw;
+                    height = sh;
+                }
+                return true;
+            }
+            catch
             {
                 mesh = null;
                 return false;
             }
-            return true;
         }
 
         public bool RestoreState(SavedGameState state)
         {
             if (string.IsNullOrEmpty(state.Puzzle)) return false;
 
-            if (!TryDecodeOrLoadMesh(state.Puzzle, out var mesh, out _, out _, out _) || mesh == null)
+            if (!TryDecodeOrLoadMesh(state.Puzzle, out var mesh, out bool isDecoded, out int w, out int h) || mesh == null)
                 return false;
 
             CurrentMesh = mesh;
             CurrentType = mesh.MeshType;
-            if (!string.IsNullOrEmpty(state.Size)) SizeText = state.Size;
-            Difficulty = state.Difficulty;
-            DisallowFalseMove = state.DisallowFalseMove;
-            ShowCellColors = state.ShowCellColors;
+            if (w > 0 && h > 0)
+            {
+                ActiveWidth = w;
+                ActiveHeight = h;
+                SizeText = $"{w}x{h}";
+            }
+            else if (!string.IsNullOrEmpty(state.Size) && PuzzleHelper.ParseSize(state.Size, mesh.MeshType, out int pw, out int ph))
+            {
+                ActiveWidth = pw;
+                ActiveHeight = ph;
+                SizeText = state.Size;
+            }
+            else
+            {
+                ActiveWidth = 0;
+                ActiveHeight = 0;
+            }
+
+            Difficulty = Math.Clamp(state.Difficulty, 0, 5);
             TotalIntersections = mesh.Intersections.Count;
             PrunedProgress = 0;
             IsGenerating = false;
             UndoTree = new UndoTree();
             MarkedEdges.Clear();
 
+            // Replay edge states and cell colors through Mesh actions so edgeSets and cellColorSets stay consistent
             if (state.EdgeStates != null && state.EdgeStates.Length == mesh.Edges.Count)
             {
+                mesh.Clear();
                 for (int i = 0; i < state.EdgeStates.Length; i++)
                 {
-                    mesh.Edges[i].State = (EdgeState)state.EdgeStates[i];
+                    EdgeState es = (EdgeState)state.EdgeStates[i];
+                    if (Enum.IsDefined(es) && es != EdgeState.Empty)
+                    {
+                        new SetAction(mesh, i, es).Perform();
+                    }
                 }
             }
             mesh.RecalculateCounts();
@@ -763,7 +861,11 @@ namespace TwistNTurn.Web.Services
             {
                 for (int i = 0; i < state.CellColors.Length; i++)
                 {
-                    mesh.Cells[i].Color = state.CellColors[i];
+                    int color = state.CellColors[i];
+                    if (color is 1 or -1)
+                    {
+                        new CellColorJoinAction(mesh, i, -1, color == 1).Perform();
+                    }
                 }
             }
 
@@ -776,15 +878,19 @@ namespace TwistNTurn.Web.Services
                 }
             }
 
-            StartTime = state.ElapsedSeconds > 0
-                ? DateTime.UtcNow.AddSeconds(-state.ElapsedSeconds)
+            double elapsedSec = double.IsFinite(state.ElapsedSeconds) && state.ElapsedSeconds > 0
+                ? state.ElapsedSeconds
+                : 0;
+            StartTime = elapsedSec > 0
+                ? DateTime.UtcNow.AddSeconds(-elapsedSec)
                 : DateTime.UtcNow;
 
             IsSolved = state.IsSolved;
+            solvedElapsed = state.IsSolved ? TimeSpan.FromSeconds(elapsedSec) : null;
             WasAutoSolved = state.IsSolved && state.WasAutoSolved;
             ClearTransientBoardState();
             CheckSolution();
-            NotifyChanged();
+            NotifyVisualChanged();
             return true;
         }
 
@@ -795,7 +901,9 @@ namespace TwistNTurn.Web.Services
             if (!TryDecodeOrLoadMesh(puzzleText, out var mesh, out bool isDecoded, out int w, out int h) || mesh == null)
                 return false;
 
-            if (isDecoded && w > 0 && h > 0)
+            ActiveWidth = w;
+            ActiveHeight = h;
+            if (w > 0 && h > 0)
             {
                 SizeText = $"{w}x{h}";
             }
@@ -809,6 +917,7 @@ namespace TwistNTurn.Web.Services
             UndoTree = new UndoTree();
             MarkedEdges.Clear();
             StartTime = DateTime.UtcNow;
+            solvedElapsed = null;
             IsSolved = false;
             WasAutoSolved = false;
             ClearTransientBoardState();
@@ -823,36 +932,34 @@ namespace TwistNTurn.Web.Services
             var token = ResetTokenSource(ref invalidFlashCts);
 
             InvalidEdgeIndex = edgeIndex;
-            NotifyChanged();
+            NotifyVisualChanged();
 
-            _ = ClearAfterDelayAsync(600, token, () =>
+            _ = ClearAfterDelayAsync(600, () =>
             {
                 if (InvalidEdgeIndex == edgeIndex)
                 {
                     InvalidEdgeIndex = null;
-                    NotifyChanged();
+                    NotifyVisualChanged();
                 }
-            });
+            }, token);
         }
 
         public void ClearHint()
         {
-            hintFlashCts?.Cancel();
-            hintMessageCts?.Cancel();
-            HintEdgeIndex = null;
-            HintMessage = null;
-            NotifyChanged();
+            ClearHintInternal();
+            NotifyVisualChanged();
         }
 
         public void ResetCurrentPuzzle()
         {
-            if (CurrentMesh == null || IsGenerating) return;
+            if (CurrentMesh == null || IsGenerating || IsBusy) return;
 
             CurrentMesh.Clear();
             MarkedEdges.Clear();
             UndoTree = new UndoTree();
             ApplyAutoStartIfEnabled(CurrentMesh);
             StartTime = DateTime.UtcNow;
+            solvedElapsed = null;
             IsSolved = false;
             WasAutoSolved = false;
             ClearTransientBoardState();
@@ -884,7 +991,7 @@ namespace TwistNTurn.Web.Services
         public void DismissVisualSolve()
         {
             if (DismissVisualSolveInternal())
-                NotifyChanged();
+                NotifyVisualChanged();
         }
 
         public bool StartVisualSolve()
@@ -892,9 +999,9 @@ namespace TwistNTurn.Web.Services
             if (CurrentMesh == null || IsGenerating) return false;
 
             DismissVisualSolveInternal();
-            ClearHint();
+            ClearHintInternal();
 
-            Mesh solver = CreateFullSolverMesh(CurrentMesh);
+            Mesh solver = PuzzleHelper.CreateFullSolverMesh(CurrentMesh);
             solver.Clear();
             solver.SuperSlowMo = true;
 
@@ -966,13 +1073,32 @@ namespace TwistNTurn.Web.Services
                 }
 
                 VisualSolveStepIndex = 0;
-                NotifyChanged();
+                NotifyVisualChanged();
                 return true;
             }
 
             DismissVisualSolveInternal();
-            NotifyChanged();
+            NotifyVisualChanged();
             return false;
+        }
+
+        public async Task<bool> StartVisualSolveAsync()
+        {
+            if (CurrentMesh == null || IsGenerating || IsBusy) return false;
+            IsBusy = true;
+            BusyMessage = "Preparing visual solver...";
+            NotifyVisualChanged();
+            try
+            {
+                await Task.Delay(20);
+                return StartVisualSolve();
+            }
+            finally
+            {
+                IsBusy = false;
+                BusyMessage = null;
+                NotifyVisualChanged();
+            }
         }
 
         public void SetVisualSolveStep(int index)
@@ -981,7 +1107,7 @@ namespace TwistNTurn.Web.Services
             int clamped = Math.Clamp(index, 0, visualSolveSteps.Count - 1);
             if (clamped == VisualSolveStepIndex) return;
             VisualSolveStepIndex = clamped;
-            NotifyChanged();
+            NotifyVisualChanged();
         }
 
         public bool StepVisualSolveForward()
@@ -989,7 +1115,7 @@ namespace TwistNTurn.Web.Services
             if (!IsVisualSolving || VisualSolveStepIndex >= visualSolveSteps.Count - 1)
                 return false;
             VisualSolveStepIndex++;
-            NotifyChanged();
+            NotifyVisualChanged();
             return true;
         }
 
@@ -998,7 +1124,7 @@ namespace TwistNTurn.Web.Services
             if (!IsVisualSolving || VisualSolveStepIndex <= 0)
                 return false;
             VisualSolveStepIndex--;
-            NotifyChanged();
+            NotifyVisualChanged();
             return true;
         }
 
@@ -1025,7 +1151,7 @@ namespace TwistNTurn.Web.Services
             if (CurrentMesh == null || IsGenerating) return false;
 
             DismissVisualSolveInternal();
-            Mesh solver = CreateFullSolverMesh(CurrentMesh);
+            Mesh solver = PuzzleHelper.CreateFullSolverMesh(CurrentMesh);
             solver.Clear();
 
             SolveState res = solver.TrySolve();
@@ -1043,6 +1169,25 @@ namespace TwistNTurn.Web.Services
             return false;
         }
 
+        public async Task<bool> SolvePuzzleAsync()
+        {
+            if (CurrentMesh == null || IsGenerating || IsBusy) return false;
+            IsBusy = true;
+            BusyMessage = "Solving puzzle...";
+            NotifyVisualChanged();
+            try
+            {
+                await Task.Delay(20);
+                return SolvePuzzle();
+            }
+            finally
+            {
+                IsBusy = false;
+                BusyMessage = null;
+                NotifyVisualChanged();
+            }
+        }
+
         public bool RequestHint(bool applyMove)
         {
             if (CurrentMesh == null || IsGenerating) return false;
@@ -1050,17 +1195,22 @@ namespace TwistNTurn.Web.Services
 
             var (edgeIdx, targetState, message) = ComputeHint();
             HintMessage = message;
+            bool boardMutated = false;
 
             if (edgeIdx.HasValue)
             {
                 HintEdgeIndex = edgeIdx.Value;
                 HintTargetState = targetState;
-                HintIsApplied = applyMove;
+                HintIsApplied = false;
                 if (applyMove)
                 {
                     var action = new PuzzleSetEdgeStateAction(CurrentMesh, edgeIdx.Value, targetState, DisallowFalseMove);
-                    UndoTree.Do(action);
-                    CheckSolution();
+                    if (UndoTree.Do(action))
+                    {
+                        HintIsApplied = true;
+                        boardMutated = true;
+                        CheckSolution();
+                    }
                 }
                 else
                 {
@@ -1069,27 +1219,49 @@ namespace TwistNTurn.Web.Services
                 }
 
                 var flashToken = ResetTokenSource(ref hintFlashCts);
-                int delayMs = applyMove ? 1500 : 3500;
+                int delayMs = HintIsApplied ? 1500 : 3500;
                 int capturedEdge = edgeIdx.Value;
-                _ = ClearAfterDelayAsync(delayMs, flashToken, () =>
+                _ = ClearAfterDelayAsync(delayMs, () =>
                 {
                     if (HintEdgeIndex == capturedEdge)
                     {
                         HintEdgeIndex = null;
-                        NotifyChanged();
+                        NotifyVisualChanged();
                     }
-                });
+                }, flashToken);
             }
 
             var msgToken = ResetTokenSource(ref hintMessageCts);
-            _ = ClearAfterDelayAsync(5000, msgToken, () =>
+            _ = ClearAfterDelayAsync(5000, () =>
             {
                 HintMessage = null;
-                NotifyChanged();
-            });
+                NotifyVisualChanged();
+            }, msgToken);
 
-            NotifyChanged();
+            if (boardMutated)
+                NotifyChanged();
+            else
+                NotifyVisualChanged();
             return edgeIdx.HasValue;
+        }
+
+        public async Task<bool> RequestHintAsync(bool applyMove)
+        {
+            if (CurrentMesh == null || IsGenerating || IsBusy) return false;
+            IsBusy = true;
+            BusyMessage = "Computing hint...";
+            NotifyVisualChanged();
+            try
+            {
+                await Task.Delay(20);
+                return RequestHint(applyMove);
+            }
+            finally
+            {
+                IsBusy = false;
+                BusyMessage = null;
+                NotifyVisualChanged();
+            }
         }
 
         public (int? EdgeIndex, EdgeState TargetState, string Message) ComputeHint()
@@ -1175,7 +1347,7 @@ namespace TwistNTurn.Web.Services
             }
 
             // 3. Fallback: full solver search on current state
-            Mesh fullSolverMesh = CreateFullSolverMesh(CurrentMesh);
+            Mesh fullSolverMesh = PuzzleHelper.CreateFullSolverMesh(CurrentMesh);
             SolveState solveRes = fullSolverMesh.TrySolve();
             if ((solveRes == SolveState.Solved || solveRes == SolveState.MultipleSolutions) && fullSolverMesh.SolutionFound != null)
             {
@@ -1185,7 +1357,10 @@ namespace TwistNTurn.Web.Services
                     if (CurrentMesh.Edges[i].State == EdgeState.Empty && sol.Edges[i].State != EdgeState.Empty)
                     {
                         string stateStr = sol.Edges[i].State == EdgeState.Filled ? "line" : "cross (✕)";
-                        return (i, sol.Edges[i].State, $"Advanced deduction: This edge must be a {stateStr}.");
+                        string prefix = solveRes == SolveState.MultipleSolutions
+                            ? "Suggested move (multiple solutions exist): This edge can be a "
+                            : "Advanced deduction: This edge must be a ";
+                        return (i, sol.Edges[i].State, $"{prefix}{stateStr}.");
                     }
                 }
             }
@@ -1255,14 +1430,14 @@ namespace TwistNTurn.Web.Services
 
         public void Dispose()
         {
-            generationCts?.Cancel();
-            generationCts?.Dispose();
-            invalidFlashCts?.Cancel();
-            invalidFlashCts?.Dispose();
-            hintFlashCts?.Cancel();
-            hintFlashCts?.Dispose();
-            hintMessageCts?.Cancel();
-            hintMessageCts?.Dispose();
+            if (generatingMesh != null)
+            {
+                generatingMesh.AbortPrune = true;
+            }
+            CancelAndDispose(ref generationCts);
+            CancelAndDispose(ref invalidFlashCts);
+            CancelAndDispose(ref hintFlashCts);
+            CancelAndDispose(ref hintMessageCts);
         }
     }
 
@@ -1284,19 +1459,6 @@ namespace TwistNTurn.Web.Services
         string Status,
         bool IsBacktrack = false,
         bool IsBranching = false);
-
-    public sealed record PuzzleAnalysisResult(
-        string SolveStatus,
-        string TechniqueTier,
-        int BranchDepth,
-        int WhitePearls,
-        int BlackPearls,
-        int TotalIntersections,
-        int EdgeCount,
-        int? LookaheadDepth = null)
-    {
-        public int ClueCount => WhitePearls + BlackPearls;
-    }
 
     public class UserPreferences
     {

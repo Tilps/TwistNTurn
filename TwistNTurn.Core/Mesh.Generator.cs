@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,20 +10,34 @@ namespace TwistNTurn
 {
     public partial class Mesh
     {
+        private const int MaxGenerateAttempts = 25;
 
         public bool CreatingLoop = false;
 
         private bool TryInitialLoopAttempt(Random rnd, List<IAction> backup, int targetCount,
-            ref long countSum, ref int tries, ref int loopTries)
+            ref long countSum, ref int tries, ref int loopTries, out bool closedLoop)
         {
+            closedLoop = false;
             FullClear();
             backup.Clear();
+            if (intersections.Count == 0 || edges.Count == 0)
+                return true;
+
             int start = rnd.Next(intersections.Count);
             Intersection inters = intersections[start];
+            if (inters.Edges.Count == 0)
+                return true;
+
             int edgeIntersIndex = rnd.Next(inters.Edges.Count);
             int edgeIndex = inters.Edges[edgeIntersIndex];
             Perform(edgeIndex, EdgeState.Filled, backup, 0);
-            _ = CreateLoop(rnd, start, start, edgeIntersIndex);
+            if (!CreateLoop(rnd, start, start, edgeIntersIndex))
+            {
+                loopTries++;
+                return loopTries > 1000;
+            }
+
+            closedLoop = true;
             int count = 0;
             for (var index = 0; index < edges.Count; index++)
             {
@@ -44,19 +59,27 @@ namespace TwistNTurn
             return true;
         }
 
-        private void GenerateInitialLoop(Random rnd, List<IAction> backup)
+        private bool GenerateInitialLoop(Random rnd, List<IAction> backup)
         {
+            if (intersections.Count == 0 || edges.Count == 0)
+                return false;
+
             int targetCount = (int)Math.Floor(intersections.Count * generateLengthFraction);
             long countSum = 0;
             int tries = 0;
             int loopTries = 0;
-            while (!TryInitialLoopAttempt(rnd, backup, targetCount, ref countSum, ref tries, ref loopTries))
+            bool closedLoop;
+            while (!AbortPrune && !TryInitialLoopAttempt(rnd, backup, targetCount, ref countSum, ref tries, ref loopTries, out closedLoop))
             {
             }
+            return !AbortPrune && loopTries <= 1000;
         }
 
-        private async Task GenerateInitialLoopAsync(Random rnd, List<IAction> backup, CancellationToken cancellationToken = default)
+        private async Task<bool> GenerateInitialLoopAsync(Random rnd, List<IAction> backup, CancellationToken cancellationToken = default)
         {
+            if (intersections.Count == 0 || edges.Count == 0)
+                return false;
+
             int targetCount = (int)Math.Floor(intersections.Count * generateLengthFraction);
             long countSum = 0;
             int tries = 0;
@@ -65,19 +88,18 @@ namespace TwistNTurn
 
             while (!AbortPrune && !cancellationToken.IsCancellationRequested)
             {
-                long currentTicks = Stopwatch.GetTimestamp();
-                double elapsedMs = (currentTicks - lastYieldTicks) * 1000.0 / Stopwatch.Frequency;
-                if (elapsedMs >= 16.0)
+                if (Stopwatch.GetElapsedTime(lastYieldTicks).TotalMilliseconds >= 16.0)
                 {
-                    lastYieldTicks = currentTicks;
+                    lastYieldTicks = Stopwatch.GetTimestamp();
                     await Task.Delay(1, cancellationToken);
                     if (AbortPrune || cancellationToken.IsCancellationRequested)
-                        return;
+                        return false;
                 }
 
-                if (TryInitialLoopAttempt(rnd, backup, targetCount, ref countSum, ref tries, ref loopTries))
-                    break;
+                if (TryInitialLoopAttempt(rnd, backup, targetCount, ref countSum, ref tries, ref loopTries, out bool closedLoop))
+                    return closedLoop && !AbortPrune && !cancellationToken.IsCancellationRequested;
             }
+            return false;
         }
 
         private bool StepLoopOptimization(int iteration)
@@ -91,30 +113,40 @@ namespace TwistNTurn
             return true;
         }
 
-        public void Generate()
+        public void Generate() => Generate(null);
+
+        public void Generate(Random? rnd)
         {
             AbortPrune = false;
             bool done = false;
+            int attempts = 0;
             List<IAction> backup = [];
-            Random rnd = Random.Shared;
-            while (!done)
+            rnd ??= Random.Shared;
+            while (!done && !AbortPrune && attempts < MaxGenerateAttempts)
             {
+                attempts++;
+                bool loopOk;
                 try
                 {
                     CreatingLoop = true;
-                    GenerateInitialLoop(rnd, backup);
-                    for (int i = 0; i < 8; i++)
+                    loopOk = GenerateInitialLoop(rnd, backup);
+                    if (loopOk && !AbortPrune)
                     {
-                        if (!StepLoopOptimization(i))
-                            break;
+                        for (int i = 0; i < 8; i++)
+                        {
+                            if (AbortPrune || !StepLoopOptimization(i))
+                                break;
+                        }
                     }
                 }
                 finally
                 {
                     CreatingLoop = false;
                 }
+                if (!loopOk || AbortPrune)
+                    continue;
                 Clear();
-                done = TryPruneCounts();
+                done = TryPruneCounts(rnd);
             }
         }
 
@@ -130,6 +162,9 @@ namespace TwistNTurn
                     filledCount++;
                 }
             }
+            if (filledCount < 3 || filledEdge < 0)
+                return false;
+
             List<int> edgesSeen = [with(filledCount + 1)];
             List<int> intersSeen = [with(filledCount)];
             List<IntersType> intersTypes = [with(filledCount)];
@@ -142,7 +177,10 @@ namespace TwistNTurn
                 Intersection nextIntersection = intersections[nextInter];
                 intersTypes.Add(nextIntersection.Type);
                 int nextEdge = GetNextEdge(nextInter, filledEdge);
-                int oppositeEdge = nextIntersection.Opposite[nextIntersection.Edges.IndexOf(filledEdge)];
+                if (nextEdge < 0)
+                    return false;
+                int edgePos = nextIntersection.Edges.IndexOf(filledEdge);
+                int oppositeEdge = edgePos >= 0 && edgePos < nextIntersection.Opposite.Count ? nextIntersection.Opposite[edgePos] : -1;
                 turned.Add(nextEdge != oppositeEdge);
                 edgesSeen.Add(nextEdge);
                 filledEdge = nextEdge;
@@ -186,7 +224,6 @@ namespace TwistNTurn
                 Cell cell = cells[c];
                 if (!IsPopable(cell, candidateCheck))
                     continue;
-                int oldCount = cell.FilledCount;
                 for (var index = 0; index < cell.Edges.Count; index++)
                 {
                     int edge = cell.Edges[index];
@@ -281,7 +318,7 @@ namespace TwistNTurn
 
         private bool TryExpandLoop(Random rnd, int targetAdditional)
         {
-            int lastTarget = 0;
+            int lastTarget = int.MinValue;
             while (lastTarget != targetAdditional)
             {
                 lastTarget = targetAdditional;
@@ -790,7 +827,7 @@ namespace TwistNTurn
                 inter.Type = IntersType.Unknown;
             }
             successLookup.Clear();
-
+            patternLookup.Clear();
         }
         public void Clear()
         {
@@ -810,20 +847,21 @@ namespace TwistNTurn
                 cell.ExcludedCount = 0;
             }
             cellColorSets.Clear();
-            edgeChains.Clear();
             foreach (Intersection inters in intersections)
             {
                 inters.ExcludedCount = 0;
                 inters.FilledCount = 0;
             }
-            edgePairRestrictions = new EdgePairRestriction[edges.Count, edges.Count];
+            if (edgePairRestrictions != null)
+            {
+                Array.Clear(edgePairRestrictions);
+            }
         }
 
         private int satisifiedIntersCount;
         private List<List<int>> edgeSets = new List<List<int>>();
         private List<List<int>> colorSets = new List<List<int>>();
         private List<List<int>> cellColorSets = new List<List<int>>();
-        private List<Chain> edgeChains = new List<Chain>();
         public EdgePairRestriction[] GetEdgePairRestrictionsForEdge(int edge)
         {
             EdgePairRestriction[] restricts = new EdgePairRestriction[edges.Count];
@@ -841,7 +879,12 @@ namespace TwistNTurn
 
         public event EventHandler? PrunedCountProgress;
 
-        public bool AbortPrune = false;
+        private volatile bool abortPrune;
+        public bool AbortPrune
+        {
+            get => abortPrune;
+            set => abortPrune = value;
+        }
 
         private bool pruning = false;
 
@@ -870,7 +913,7 @@ namespace TwistNTurn
             }
         }
 
-        private bool TryPruneCounts()
+        private bool TryPruneCounts(Random rnd)
         {
             SolveState state = TrySolve();
             if (state != SolveState.Solved)
@@ -880,15 +923,15 @@ namespace TwistNTurn
                 pruning = true;
                 finalSolution = solutionsFound != null && solutionsFound.Count > 0 ? solutionsFound[0] : null;
                 finalDepthPatern = solutionDepthPatern != null && solutionDepthPatern.Count > 0 ? solutionDepthPatern[0] : null;
-                int[] trials = CreateShuffledTrials(Random.Shared);
+                int[] trials = CreateShuffledTrials(rnd);
                 foreach (int trial in trials)
                 {
                     if (AbortPrune)
-                        break;
+                        return false;
                     TryPruneIntersection(trial);
                     PrunedCountProgress?.Invoke(this, EventArgs.Empty);
                 }
-                return true;
+                return !AbortPrune;
             }
             finally
             {
@@ -980,9 +1023,13 @@ namespace TwistNTurn
         {
             if (string.IsNullOrEmpty(numAccumulator))
                 return numAccumulator;
-            int value = int.Parse(numAccumulator);
-            if (state == 2)
-                iterativeSolverDepth = value;
+            if (int.TryParse(numAccumulator, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+            {
+                if (state == 2)
+                    iterativeSolverDepth = value;
+                else if (state == 3)
+                    iterativeRecMaxDepth = value;
+            }
             return string.Empty;
         }
 
@@ -991,19 +1038,23 @@ namespace TwistNTurn
             return intersections[i].Type == IntersType.Unknown || intersections[i].Type == DetermineType(i);
         }
 
-        public async Task GenerateAsync(IProgress<int>? progress = null, CancellationToken cancellationToken = default)
+        public async Task GenerateAsync(IProgress<int>? progress = null, CancellationToken cancellationToken = default, Random? rnd = null)
         {
             AbortPrune = false;
+            using var reg = cancellationToken.Register(() => AbortPrune = true);
             bool done = false;
+            int attempts = 0;
             List<IAction> backup = [];
-            Random rnd = Random.Shared;
-            while (!done && !cancellationToken.IsCancellationRequested && !AbortPrune)
+            rnd ??= Random.Shared;
+            while (!done && !cancellationToken.IsCancellationRequested && !AbortPrune && attempts < MaxGenerateAttempts)
             {
+                attempts++;
+                bool loopOk;
                 try
                 {
                     CreatingLoop = true;
-                    await GenerateInitialLoopAsync(rnd, backup, cancellationToken);
-                    if (cancellationToken.IsCancellationRequested || AbortPrune) break;
+                    loopOk = await GenerateInitialLoopAsync(rnd, backup, cancellationToken);
+                    if (!loopOk || cancellationToken.IsCancellationRequested || AbortPrune) break;
 
                     for (int i = 0; i < 8; i++)
                     {
@@ -1019,7 +1070,7 @@ namespace TwistNTurn
                 Clear();
                 if (cancellationToken.IsCancellationRequested || AbortPrune) break;
 
-                done = await TryPruneCountsAsync(progress, cancellationToken);
+                done = await TryPruneCountsAsync(progress, rnd, cancellationToken);
                 if (!done && !cancellationToken.IsCancellationRequested && !AbortPrune)
                 {
                     progress?.Report(0);
@@ -1028,7 +1079,7 @@ namespace TwistNTurn
             }
         }
 
-        private async Task<bool> TryPruneCountsAsync(IProgress<int>? progress, CancellationToken cancellationToken)
+        private async Task<bool> TryPruneCountsAsync(IProgress<int>? progress, Random rnd, CancellationToken cancellationToken)
         {
             if (AbortPrune || cancellationToken.IsCancellationRequested)
                 return false;
@@ -1047,13 +1098,15 @@ namespace TwistNTurn
                 pruning = true;
                 finalSolution = solutionsFound != null && solutionsFound.Count > 0 ? solutionsFound[0] : null;
                 finalDepthPatern = solutionDepthPatern != null && solutionDepthPatern.Count > 0 ? solutionDepthPatern[0] : null;
-                int[] trials = CreateShuffledTrials(Random.Shared);
+                int[] trials = CreateShuffledTrials(rnd);
                 int prunedCount = 0;
                 foreach (int trial in trials)
                 {
                     if (AbortPrune || cancellationToken.IsCancellationRequested)
-                        break;
+                        return false;
                     TryPruneIntersection(trial);
+                    if (AbortPrune || cancellationToken.IsCancellationRequested)
+                        return false;
                     prunedCount++;
                     progress?.Report(prunedCount);
                     if (prunedCount % 5 == 0)
@@ -1061,7 +1114,7 @@ namespace TwistNTurn
                         await Task.Delay(1, cancellationToken);
                     }
                 }
-                return true;
+                return !AbortPrune && !cancellationToken.IsCancellationRequested;
             }
             finally
             {

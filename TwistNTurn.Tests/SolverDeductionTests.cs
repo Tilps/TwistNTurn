@@ -24,7 +24,7 @@ namespace TwistNTurn.Tests
                 if (mesh.Intersections[i].Type != IntersType.Unknown)
                     clueCount++;
             }
-            Assert.IsTrue(clueCount > 0, "Generator should produce at least one clue pearl");
+            Assert.IsGreaterThan(0, clueCount, "Generator should produce at least one clue pearl");
 
             // Verify the generated puzzle solves to Solved
             mesh.Clear(); // reset edges to empty

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace TwistNTurn
@@ -77,7 +78,6 @@ namespace TwistNTurn
             var sb = new StringBuilder();
             for (int j = 0; j <= height; j++)
             {
-                // Horizontal line: intersections (O/*/+) and horizontal edges (-/x/ )
                 for (int i = 0; i <= width; i++)
                 {
                     int interIdx = i * (height + 1) + j;
@@ -98,7 +98,6 @@ namespace TwistNTurn
                 }
                 sb.AppendLine();
 
-                // Vertical line: vertical edges (|/x/ ) separated by cell interiors (' ')
                 if (j < height)
                 {
                     for (int i = 0; i <= width; i++)
@@ -142,22 +141,27 @@ namespace TwistNTurn
                 return true;
             }
 
-            string[] lines = rawInput.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries);
-            if (lines.Length == 0)
+            // Preserve interior blank lines for ASCII grids whose vertical-edge lines had trailing whitespace trimmed
+            string[] rawLines = SplitPreservingInteriorBlanks(rawInput);
+            if (rawLines.Length == 0)
                 return false;
 
             // 2. Square Masyu ASCII grid (+, O, *, -, |, x)
-            if (IsAsciiHeader(lines[0]) && TryParseSquareAscii(lines, out mesh, out width, out height))
+            if (IsAsciiHeader(rawLines[0]) && TryParseSquareAscii(rawLines, out mesh, out width, out height))
             {
                 detectedFormat = "ASCII Grid";
                 return true;
             }
 
+            string[] nonEmptyLines = rawInput.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries);
+            if (nonEmptyLines.Length == 0)
+                return false;
+
             // 3. Native .twist serialization
             try
             {
                 var nativeMesh = new Mesh(0, 0, MeshType.Square);
-                if (nativeMesh.LoadFromText(lines))
+                if (nativeMesh.LoadFromText(nonEmptyLines))
                 {
                     mesh = nativeMesh;
                     detectedFormat = "Twist File";
@@ -176,10 +180,9 @@ namespace TwistNTurn
             // 4. Legacy compressed share token fallback
             if (!trimmed.Contains('\n'))
             {
-                try
+                if (PuzzleCompression.TryDecompressFromUrlSafe(codeCandidate, out string decompressed) && !string.IsNullOrWhiteSpace(decompressed))
                 {
-                    string decompressed = PuzzleCompression.Decompress(codeCandidate);
-                    if (!string.IsNullOrWhiteSpace(decompressed))
+                    try
                     {
                         var legacyMesh = new Mesh(0, 0, MeshType.Square);
                         if (legacyMesh.LoadFromText(decompressed.AsSpan()))
@@ -194,17 +197,35 @@ namespace TwistNTurn
                             return true;
                         }
                     }
-                }
-                catch
-                {
+                    catch
+                    {
+                    }
                 }
             }
 
             return false;
         }
 
+        private static string[] SplitPreservingInteriorBlanks(string rawInput)
+        {
+            var lines = new List<string>();
+            foreach (var span in rawInput.AsSpan().EnumerateLines())
+            {
+                lines.Add(span.ToString());
+            }
+            int start = 0;
+            while (start < lines.Count && string.IsNullOrWhiteSpace(lines[start]))
+                start++;
+            int end = lines.Count - 1;
+            while (end >= start && string.IsNullOrWhiteSpace(lines[end]))
+                end--;
+            if (start > end)
+                return [];
+            return lines.GetRange(start, end - start + 1).ToArray();
+        }
+
         private static bool IsAsciiHeader(string firstLine)
-            => firstLine.Length >= 3 && firstLine[0] is '+' or 'O' or 'o' or '*' or '@';
+            => firstLine.Length >= 3 && firstLine[0] is '+' or 'O' or 'o' or 'W' or 'w' or '*' or 'B' or 'b';
 
         private static string ExtractShareCode(string trimmed)
         {
@@ -232,8 +253,45 @@ namespace TwistNTurn
 
             width = lineLen / 2;
             height = lines.Length / 2;
-            if (width <= 0 || height <= 0 || width > 100 || height > 100)
+            if (width <= 0 || height <= 0 || width > PuzzleHelper.MaxGridDimension || height > PuzzleHelper.MaxGridDimension)
                 return false;
+
+            // Validate grid characters strictly before allocating or mutating a Mesh
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                if (line.Length > lineLen)
+                    return false;
+                if (line.Length < lineLen)
+                    line = line.PadRight(lineLen);
+
+                if (i % 2 == 0)
+                {
+                    for (int j = 0; j < lineLen; j += 2)
+                    {
+                        if (line[j] is not ('+' or 'O' or 'o' or 'W' or 'w' or '*' or 'B' or 'b'))
+                            return false;
+                    }
+                    for (int j = 1; j < lineLen; j += 2)
+                    {
+                        if (line[j] is not (' ' or '-' or 'x' or 'X'))
+                            return false;
+                    }
+                }
+                else
+                {
+                    for (int j = 0; j < lineLen; j += 2)
+                    {
+                        if (line[j] is not (' ' or '|' or 'x' or 'X'))
+                            return false;
+                    }
+                    for (int j = 1; j < lineLen; j += 2)
+                    {
+                        if (line[j] != ' ')
+                            return false;
+                    }
+                }
+            }
 
             var candidate = new Mesh(width, height, MeshType.Square);
 
@@ -246,7 +304,6 @@ namespace TwistNTurn
                 int row = i / 2;
                 if (i % 2 == 0)
                 {
-                    // Intersections at even positions
                     for (int j = 0; j < lineLen; j += 2)
                     {
                         int col = j / 2;
@@ -254,12 +311,11 @@ namespace TwistNTurn
                         candidate.Intersections[interIdx].Type = line[j] switch
                         {
                             'O' or 'o' or 'W' or 'w' => IntersType.Twist,
-                            '*' or '@' or 'B' or 'b' => IntersType.Turn,
+                            '*' or 'B' or 'b' => IntersType.Turn,
                             _ => IntersType.Unknown
                         };
                     }
 
-                    // Horizontal edges at odd positions
                     for (int j = 1; j < lineLen; j += 2)
                     {
                         char ch = line[j];
@@ -275,7 +331,6 @@ namespace TwistNTurn
                 }
                 else
                 {
-                    // Vertical edges at even positions
                     for (int j = 0; j < lineLen; j += 2)
                     {
                         char ch = line[j];

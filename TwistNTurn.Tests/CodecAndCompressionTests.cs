@@ -65,9 +65,9 @@ namespace TwistNTurn.Tests
             string compressed = PuzzleCompression.Compress(original);
 
             Assert.IsFalse(string.IsNullOrWhiteSpace(compressed));
-            Assert.IsFalse(compressed.Contains('+'));
-            Assert.IsFalse(compressed.Contains('/'));
-            Assert.IsFalse(compressed.Contains('='));
+            Assert.DoesNotContain('+', compressed);
+            Assert.DoesNotContain('/', compressed);
+            Assert.DoesNotContain('=', compressed);
             string decompressed = PuzzleCompression.Decompress(compressed);
 
             Assert.AreEqual(original, decompressed);

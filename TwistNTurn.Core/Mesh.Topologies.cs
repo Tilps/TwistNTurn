@@ -191,6 +191,7 @@ namespace TwistNTurn
                         intersects.Clear();
                     }
                 }
+                NormalizeCoordinates();
                 CreateOpposites();
                 CreateCells();
             }
@@ -379,21 +380,6 @@ namespace TwistNTurn
             }
         }
 
-        private void AddIntersectionOnGrid(int[,] grid, List<int> intersects, int topX, int topY)
-        {
-            if (grid[topX, topY] == -1)
-            {
-                grid[topX, topY] = intersections.Count;
-                intersects.Add(intersections.Count);
-                Intersection inters = new Intersection();
-                intersections.Add(inters);
-                inters.X = topX;
-                inters.Y = topY;
-            }
-            else
-                intersects.Add(grid[topX, topY]);
-        }
-
         public void CreateCells()
         {
             for (int i = 0; i < intersections.Count; i++)
@@ -556,11 +542,15 @@ namespace TwistNTurn
                             }
                         }
                     }
+                    if (next == -1 || corners.Count > intersections.Count)
+                        break;
                     if (nextAngle > Math.PI)
                         nextAngle -= Math.PI * 2;
                     lastAngle = nextAngle;
                     nextInter = intersections[next];
                 }
+                if (next != i || corners.Count < 3)
+                    continue;
                 int min = int.MaxValue;
                 foreach (int corner in corners)
                 {
@@ -585,8 +575,12 @@ namespace TwistNTurn
                         float dx2 = endInter.X - midInter.X;
                         double cross = dy1 * dx2 - dx1 * dy2;
                         double dot = dx1 * dx2 + dy1 * dy2;
-                        double angle = Math.Acos(dot / Math.Sqrt(dx1 * dx1 + dy1 * dy1) /
-                                                 Math.Sqrt(dx2 * dx2 + dy2 * dy2));
+                        double len1 = Math.Sqrt(dx1 * dx1 + dy1 * dy1);
+                        double len2 = Math.Sqrt(dx2 * dx2 + dy2 * dy2);
+                        if (len1 <= 0.0 || len2 <= 0.0)
+                            continue;
+                        double cosTheta = Math.Clamp(dot / (len1 * len2), -1.0, 1.0);
+                        double angle = Math.Acos(cosTheta);
                         if (cross < 0)
                             angle = -angle;
 

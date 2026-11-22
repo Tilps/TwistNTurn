@@ -1,9 +1,9 @@
 // TwistNTurn Service Worker
-const CACHE_NAME = 'twistnturn-v4';
+const CACHE_NAME = 'twistnturn-v5';
 
-// Install event: prepare cache
+// Install event: remain waiting until user accepts update via SKIP_WAITING
 self.addEventListener('install', event => {
-    self.skipWaiting();
+    // Do not call self.skipWaiting() unconditionally so active sessions keep matching assets
 });
 
 // Activate event: clean up outdated caches and take control
@@ -16,8 +16,8 @@ self.addEventListener('activate', event => {
 });
 
 // Fetch event:
-// - Network-first for navigation and index.html (guarantees fast updates)
-// - Cache-first with network fallback for fingerprinted assets
+// - Network-first for navigation, HTML, un-fingerprinted CSS, and manifest
+// - Cache-first with offline fallback for fingerprinted _framework and image assets
 self.addEventListener('fetch', event => {
     if (event.request.method !== 'GET') return;
 
@@ -26,35 +26,43 @@ self.addEventListener('fetch', event => {
     // Only cache requests from our origin
     if (url.origin !== self.location.origin) return;
 
-    // Navigation / HTML: Network-first, fallback to cache
-    if (event.request.mode === 'navigate' || url.pathname.endsWith('/') || url.pathname.endsWith('.html')) {
+    const isNetworkFirst =
+        event.request.mode === 'navigate' ||
+        url.pathname.endsWith('/') ||
+        url.pathname.endsWith('.html') ||
+        url.pathname.endsWith('.css') ||
+        url.pathname.endsWith('.webmanifest');
+
+    if (isNetworkFirst) {
         event.respondWith(
             fetch(event.request)
                 .then(networkResponse => {
                     if (networkResponse && networkResponse.status === 200) {
                         const copy = networkResponse.clone();
-                        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+                        event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(() => {}));
                     }
                     return networkResponse;
                 })
-                .catch(() => caches.match(event.request).then(cached => cached || caches.match('./')))
+                .catch(() => caches.match(event.request).then(cached => cached || caches.match('./')).then(res => res || new Response('', { status: 503 })))
         );
         return;
     }
 
-    // Static assets (_framework, css, images): Cache-first
+    // Fingerprinted / static assets (_framework, images): Cache-first with graceful offline catch
     event.respondWith(
         caches.match(event.request).then(cachedResponse => {
             if (cachedResponse) {
                 return cachedResponse;
             }
-            return fetch(event.request).then(networkResponse => {
-                if (networkResponse && networkResponse.status === 200) {
-                    const copy = networkResponse.clone();
-                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
-                }
-                return networkResponse;
-            });
+            return fetch(event.request)
+                .then(networkResponse => {
+                    if (networkResponse && networkResponse.status === 200) {
+                        const copy = networkResponse.clone();
+                        event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(() => {}));
+                    }
+                    return networkResponse;
+                })
+                .catch(() => caches.match(event.request).then(cached => cached || new Response('', { status: 503 })));
         })
     );
 });
@@ -71,4 +79,3 @@ self.addEventListener('message', event => {
         }
     }
 });
-

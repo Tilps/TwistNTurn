@@ -21,7 +21,7 @@ namespace TwistNTurn.Tests
         [TestMethod]
         public void ComputeHint_DetectsMasyuContradictions()
         {
-            var game = new GameService();
+            using var game = new GameService();
 
             // 1. Intersection degree > 2
             var degMesh = new Mesh(2, 2, MeshType.Square);
@@ -66,7 +66,7 @@ namespace TwistNTurn.Tests
         [TestMethod]
         public void RequestHint_SeparatesHighlightFromApply_AndSupportsUndo()
         {
-            var game = new GameService();
+            using var game = new GameService();
             var mesh = CreateSquare2x2CornerBlackPuzzle();
             game.LoadPuzzleText(PuzzleCodec.Encode(mesh, 2, 2));
 
@@ -91,37 +91,40 @@ namespace TwistNTurn.Tests
         [TestMethod]
         public void SolvePuzzle_AndReset_WorkWithUndoAndVictoryLockRestore()
         {
-            var game = new GameService();
+            using var game = new GameService();
             var mesh = CreateSquare2x2CornerBlackPuzzle();
             game.LoadPuzzleText(PuzzleCodec.Encode(mesh, 2, 2));
 
-            // Lock one unrelated move before solving so we can verify pre-victory lock restore on Undo
+            // Lock one move before solving so we verify pre-victory lock restore on Undo
+            Assert.IsTrue(game.SetEdgeDirect(0, EdgeState.Filled));
             game.Fix();
             int preFixCount = game.MarkedEdges.Count;
+            Assert.AreEqual(1, preFixCount);
 
             Assert.IsTrue(game.SolvePuzzle());
             Assert.IsTrue(game.IsSolved);
             Assert.IsTrue(game.WasAutoSolved);
-            Assert.IsTrue(game.MarkedEdges.Count > preFixCount);
+            Assert.IsGreaterThan(preFixCount, game.MarkedEdges.Count);
 
             // Undo reverses the solve AND restores pre-victory lock state
             game.Undo();
             Assert.IsFalse(game.IsSolved);
             Assert.IsFalse(game.WasAutoSolved);
             Assert.HasCount(preFixCount, game.MarkedEdges);
+            Assert.Contains(0, game.MarkedEdges);
+            Assert.IsTrue(game.UndoTree.IsMarked);
 
-            // Set an edge then Reset
-            game.SetEdgeDirect(0, EdgeState.Filled);
-            Assert.IsTrue(game.CanUndo);
+            // Reset clears edges and checkpoints
             game.ResetCurrentPuzzle();
             Assert.IsFalse(game.CanUndo);
+            Assert.IsEmpty(game.MarkedEdges);
             Assert.AreEqual(EdgeState.Empty, game.CurrentMesh!.Edges[0].State);
         }
 
         [TestMethod]
         public void DisallowFalseMove_FlashesInvalidEdgeOnRejection()
         {
-            var game = new GameService();
+            using var game = new GameService();
             var mesh = new Mesh(2, 2, MeshType.Square);
             int center = 4; // (1,1)
             var edges = mesh.Intersections[center].Edges;

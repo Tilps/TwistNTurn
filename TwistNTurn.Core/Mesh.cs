@@ -104,7 +104,6 @@ namespace TwistNTurn
         public float X;
         public float Y;
         public int EdgeSet;
-        public ChainNode? EdgeSetEntry;
         public IntersType Type;
 
         public Intersection Clone()
@@ -234,7 +233,11 @@ namespace TwistNTurn
                     break;
                 }
             }
+            if (bottomLeft < 0)
+                return string.Empty;
             int height = bottomLeft + 1;
+            if (intersections.Count % height != 0)
+                return string.Empty;
             int width = intersections.Count / height;
             char[] display = new char[4 * height * (width+1)];
             for (int i = 0; i < display.Length; i++)
@@ -253,7 +256,7 @@ namespace TwistNTurn
                         display[index] = '*';
                         break;
                     case IntersType.Twist:
-                        display[index] = '@';
+                        display[index] = 'O';
                         break;
                 }
             }
@@ -327,11 +330,21 @@ namespace TwistNTurn
             foreach (List<int> otherEdgeSet in other.edgeSets)
                 edgeSets.Add([.. otherEdgeSet]);
             this.generateLengthFraction = other.generateLengthFraction;
+            this.generateBoringFraction = other.generateBoringFraction;
             this.satisifiedIntersCount = other.satisifiedIntersCount;
             this.useColoring = other.useColoring;
             this.useCellPairs = other.useCellPairs;
             this.useCellPairsTopLevel = other.useCellPairsTopLevel;
             this.useEdgeRestricts = other.useEdgeRestricts;
+            this.useDerivedColoring = other.useDerivedColoring;
+            this.useCellColoring = other.useCellColoring;
+            this.useCellColoringTrials = other.useCellColoringTrials;
+            this.useMerging = other.useMerging;
+            this.superSlowMo = other.superSlowMo;
+            if (other.edgePairRestrictions != null)
+            {
+                this.edgePairRestrictions = (EdgePairRestriction[,])other.edgePairRestrictions.Clone();
+            }
         }
 
         public Mesh(int width, int height, MeshType type)
@@ -428,48 +441,54 @@ namespace TwistNTurn
             {
                 if (edgeDistancesCache == null)
                 {
-                    edgeDistancesCache = new int[edges.Count, edges.Count];
-                    for (int i = 0; i < edges.Count; i++)
+                    int n = edges.Count;
+                    edgeDistancesCache = new int[n, n];
+                    for (int i = 0; i < n; i++)
                     {
-                        for (int j = 0; j < edges.Count; j++)
+                        for (int j = 0; j < n; j++)
                         {
                             if (i != j)
                                 edgeDistancesCache[i, j] = int.MaxValue;
                         }
                     }
-                    bool progress = true;
-                    while (progress)
+
+                    // Precompute edge adjacency once and run BFS from each edge: O(E^2)
+                    int[][] adj = new int[n][];
+                    List<int> scratch = [];
+                    for (int eIdx = 0; eIdx < n; eIdx++)
                     {
-                        progress = false;
-                        for (int next = 0; next < edges.Count; next++)
+                        scratch.Clear();
+                        Edge e = edges[eIdx];
+                        for (int k = 0; k < e.Intersections.Length; k++)
                         {
-                            Edge e = edges[next];
-                            List<int> oneAway = new List<int>();
-                            for (var index = 0; index < e.Intersections.Length; index++)
+                            Intersection inter = intersections[e.Intersections[k]];
+                            for (int m = 0; m < inter.Edges.Count; m++)
                             {
-                                int inters = e.Intersections[index];
-                                Intersection i = intersections[inters];
-                                for (var index2 = 0; index2 < i.Edges.Count; index2++)
-                                {
-                                    int other = i.Edges[index2];
-                                    if (other != next)
-                                        oneAway.Add(other);
-                                }
+                                int other = inter.Edges[m];
+                                if (other != eIdx)
+                                    scratch.Add(other);
                             }
-                            for (int i = 0; i < edges.Count; i++)
+                        }
+                        adj[eIdx] = scratch.ToArray();
+                    }
+
+                    int[] queue = new int[n];
+                    for (int src = 0; src < n; src++)
+                    {
+                        int head = 0, tail = 0;
+                        queue[tail++] = src;
+                        while (head < tail)
+                        {
+                            int cur = queue[head++];
+                            int nextDist = edgeDistancesCache[src, cur] + 1;
+                            int[] neighbors = adj[cur];
+                            for (int k = 0; k < neighbors.Length; k++)
                             {
-                                int toMe = edgeDistancesCache[next, i];
-                                if (toMe != int.MaxValue)
+                                int nb = neighbors[k];
+                                if (edgeDistancesCache[src, nb] == int.MaxValue)
                                 {
-                                    for (var index = 0; index < oneAway.Count; index++)
-                                    {
-                                        int other = oneAway[index];
-                                        if (edgeDistancesCache[other, i] > toMe + 1)
-                                        {
-                                            edgeDistancesCache[other, i] = edgeDistancesCache[i, other] = toMe + 1;
-                                            progress = true;
-                                        }
-                                    }
+                                    edgeDistancesCache[src, nb] = nextDist;
+                                    queue[tail++] = nb;
                                 }
                             }
                         }
@@ -884,7 +903,7 @@ namespace TwistNTurn
                 {
                     cell.FilledCount++;
                 }
-                else
+                else if (state == EdgeState.Excluded)
                 {
                     cell.ExcludedCount++;
                 }
@@ -906,7 +925,7 @@ namespace TwistNTurn
                     else if (inters.FilledCount < 4)
                         satisifiedIntersCount--;
                 }
-                else
+                else if (state == EdgeState.Excluded)
                 {
                     inters.ExcludedCount++;
                     if ((inters.FilledCount > 0 || inters.Type != IntersType.Unknown) &&
@@ -977,8 +996,10 @@ namespace TwistNTurn
                 {
                     cell.FilledCount--;
                 }
-                else
+                else if (state == EdgeState.Excluded)
+                {
                     cell.ExcludedCount--;
+                }
             }
             for (var i = 0; i < edge.Intersections.Length; i++)
             {
@@ -992,8 +1013,10 @@ namespace TwistNTurn
                     else if (inters.FilledCount == 1)
                         satisifiedIntersCount--;
                 }
-                else
+                else if (state == EdgeState.Excluded)
+                {
                     inters.ExcludedCount--;
+                }
             }
         }
 
@@ -1001,6 +1024,9 @@ namespace TwistNTurn
         {
             Edge edge = edges[edgeIndex];
             oldState = edge.State;
+            if (oldState == EdgeState.Empty)
+                return false;
+
             RawEdgeUnset(oldState, edge);
             if (edge.EdgeSet != 0)
             {
@@ -1009,15 +1035,15 @@ namespace TwistNTurn
                 edgeSetChanges.Add(new int[] { edgeIndex, 0, edge.EdgeSet, index });
                 edgeSets[edge.EdgeSet - 1].RemoveAt(index);
                 edge.EdgeSet = 0;
-                int curInter = edge.Intersections[0];
                 int target = edge.Intersections[1];
-                List<int> foundEdges = new List<int>();
+                List<int> foundEdges = [];
+                HashSet<int> visitedEdges = [];
                 Stack<int> todoEdges = new Stack<int>();
                 Stack<int> todoPrevInters = new Stack<int>();
                 todoEdges.Push(edgeIndex);
                 todoPrevInters.Push(target);
                 bool foundTarget = false;
-                Dictionary<int, bool> foundInters = new Dictionary<int, bool>();
+                HashSet<int> foundInters = [];
                 while (todoEdges.Count > 0)
                 {
                     int curEdge = todoEdges.Pop();
@@ -1028,7 +1054,7 @@ namespace TwistNTurn
                         foundTarget = true;
                         break;
                     }
-                    if (!foundInters.ContainsKey(curInters))
+                    if (foundInters.Add(curInters))
                     {
                         Intersection inters = intersections[curInters];
                         for (var i = 0; i < inters.Edges.Count; i++)
@@ -1037,17 +1063,17 @@ namespace TwistNTurn
                             if (nextEdge != curEdge)
                             {
                                 Edge e = edges[nextEdge];
-                                if (e.State == EdgeState.Filled)
+                                if (e.State == EdgeState.Filled && visitedEdges.Add(nextEdge))
                                 {
+                                    foundEdges.Add(nextEdge);
                                     todoEdges.Push(nextEdge);
                                     todoPrevInters.Push(curInters);
                                 }
                             }
                         }
-                        foundInters[curInters] = true;
                     }
                 }
-                if (!foundTarget)
+                if (!foundTarget && foundEdges.Count > 0)
                 {
                     edgeSets.Add(new List<int>());
                     int newEdgeSet = edgeSets.Count;
@@ -1055,11 +1081,14 @@ namespace TwistNTurn
                     {
                         int otherEdgeIndex = foundEdges[i];
                         int otherIndex = edgeSets[oldEdgeSet - 1].IndexOf(otherEdgeIndex);
-                        edgeSetChanges.Add(new int[] {otherEdgeIndex, newEdgeSet, oldEdgeSet, otherIndex});
-                        edgeSets[oldEdgeSet - 1].RemoveAt(otherIndex);
-                        Edge e = edges[otherEdgeIndex];
-                        e.EdgeSet = newEdgeSet;
-                        edgeSets[newEdgeSet - 1].Add(otherEdgeIndex);
+                        if (otherIndex >= 0)
+                        {
+                            edgeSetChanges.Add(new int[] { otherEdgeIndex, newEdgeSet, oldEdgeSet, otherIndex });
+                            edgeSets[oldEdgeSet - 1].RemoveAt(otherIndex);
+                            Edge e = edges[otherEdgeIndex];
+                            e.EdgeSet = newEdgeSet;
+                            edgeSets[newEdgeSet - 1].Add(otherEdgeIndex);
+                        }
                     }
                 }
             }
@@ -1258,20 +1287,6 @@ namespace TwistNTurn
 
     }
 
-    public class LoopPath
-    {
-        public List<PathSegment> PathOptions = new List<PathSegment>();
-        public int PathStart;
-        public int PathEnd;
-    }
-
-    public class PathSegment
-    {
-        public LoopPath Parent = null!;
-        // Positive for an edge number, negative for a path index.
-        public List<int> PathBits = new List<int>();
-    }
-
     public class SetAction : IAction
     {
 
@@ -1418,12 +1433,13 @@ namespace TwistNTurn
 
         public bool Perform()
         {
-            successful = true;
+            successful = false;
             edgeSetChanges = new List<int[]>();
             if (!mesh.PerformUnsetZero(edge, out oldState, edgeSetChanges))
             {
-                successful = false;
+                return false;
             }
+            successful = true;
             return true;
         }
 
@@ -1540,12 +1556,13 @@ namespace TwistNTurn
 
         public bool Perform()
         {
-            successful = true;
+            successful = false;
             colorSetChanges = new List<int[]>();
             if (!mesh.JoinColor(edge1, edge2, !same, colorSetChanges, ref wasteOfTime))
             {
                 return false;
             }
+            successful = true;
             return true;
         }
 
@@ -1663,12 +1680,13 @@ namespace TwistNTurn
 
         public bool Perform()
         {
-            successful = true;
+            successful = false;
             colorSetChanges = new List<int[]>();
             if (!mesh.JoinCellColor(cell1, cell2, !same, colorSetChanges, ref wasteOfTime))
             {
                 return false;
             }
+            successful = true;
             return true;
         }
 
@@ -1744,12 +1762,13 @@ namespace TwistNTurn
 
         public bool Perform()
         {
-            successful = true;
+            successful = false;
             oldColor = mesh.Cells[cell1].Color;
             if (!mesh.ClearCellColor(cell1, out oldSetPos))
             {
                 return false;
             }
+            successful = true;
             return true;
         }
 
@@ -1860,11 +1879,12 @@ namespace TwistNTurn
 
         public bool Perform()
         {
-            successful = true;
+            successful = false;
             if (!mesh.RestrictEdges(edge1, edge2, state, ref wasteOfTime))
             {
                 return false;
             }
+            successful = true;
             return true;
         }
 
@@ -1900,28 +1920,16 @@ namespace TwistNTurn
         }
     }
 
-    public static class HashCode
-    {
-        public static int Combine(int a, int b)
-        {
-            return ((a << 5) + a) ^ b;
-        }
-        public static int Combine(int a, int b, int c)
-        {
-            int middle= ((a << 5) + a) ^ b;
-            return ((middle << 5) + middle) ^ c;
-        }
-        public static int Combine(int a, int b, int c, int d)
-        {
-            int middle = ((a << 5) + a) ^ b;
-            middle = ((middle << 5) + middle) ^ c;
-            return ((middle << 5) + middle) ^ d;
-        }
-    }
-
     public class ActionSorter : IComparer<IAction>
     {
-#region IComparer<IAction> Members
+        private static int GetTypeRank(IAction action) => action switch
+        {
+            CellColorJoinAction => 0,
+            ColorJoinAction => 1,
+            EdgeRestrictionAction => 2,
+            SetAction => 3,
+            _ => 4
+        };
 
         public int Compare(IAction? x, IAction? y)
         {
@@ -1929,140 +1937,27 @@ namespace TwistNTurn
             if (x == null) return -1;
             if (y == null) return 1;
 
-            if (x is SetAction)
-            {
-                if (y is SetAction)
-                {
-                    return ((SetAction)x).EdgeIndex.CompareTo(((SetAction)y).EdgeIndex);
-                }
-                else
-                {
-                    return 1;
-                }
-            }
-            else if (x is ColorJoinAction)
-            {
-                ColorJoinAction xc = (ColorJoinAction)x;
-                if (y is SetAction)
-                {
-                    return -1;
-                }
-                else if (y is ColorJoinAction)
-                {
-                    ColorJoinAction yc = (ColorJoinAction)y;
-                    int res = xc.Edge1.CompareTo(yc.Edge1);
-                    if (res == 0)
-                        res = xc.Edge2.CompareTo(yc.Edge2);
-                    return res;
-                }
-                else
-                {
-                    return 1;
-                }
-            }
-            else if (x is CellColorJoinAction)
-            {
-                CellColorJoinAction xc = (CellColorJoinAction)x;
-                if (y is CellColorJoinAction)
-                {
-                    CellColorJoinAction yc = (CellColorJoinAction)y;
-                    int res = xc.Cell1.CompareTo(yc.Cell1);
-                    if (res == 0)
-                        res = xc.Cell2.CompareTo(yc.Cell2);
-                    return res;
+            int rankCmp = GetTypeRank(x).CompareTo(GetTypeRank(y));
+            if (rankCmp != 0)
+                return rankCmp;
 
-                }
-                else
-                {
-                    return -1;
-                }
-            }
-            throw new NotSupportedException("ActionSorter doesn't support the provided action type.");
+            return (x, y) switch
+            {
+                (SetAction xs, SetAction ys) => xs.EdgeIndex != ys.EdgeIndex
+                    ? xs.EdgeIndex.CompareTo(ys.EdgeIndex)
+                    : xs.EdgeState.CompareTo(ys.EdgeState),
+                (ColorJoinAction xc, ColorJoinAction yc) => xc.Edge1 != yc.Edge1
+                    ? xc.Edge1.CompareTo(yc.Edge1)
+                    : (xc.Edge2 != yc.Edge2 ? xc.Edge2.CompareTo(yc.Edge2) : xc.Same.CompareTo(yc.Same)),
+                (CellColorJoinAction xc, CellColorJoinAction yc) => xc.Cell1 != yc.Cell1
+                    ? xc.Cell1.CompareTo(yc.Cell1)
+                    : (xc.Cell2 != yc.Cell2 ? xc.Cell2.CompareTo(yc.Cell2) : xc.Same.CompareTo(yc.Same)),
+                (EdgeRestrictionAction xr, EdgeRestrictionAction yr) => xr.Edge1 != yr.Edge1
+                    ? xr.Edge1.CompareTo(yr.Edge1)
+                    : (xr.Edge2 != yr.Edge2 ? xr.Edge2.CompareTo(yr.Edge2) : xr.State.CompareTo(yr.State)),
+                _ => string.CompareOrdinal(x.Name, y.Name)
+            };
         }
-
-#endregion
-    }
-
-    public class Chain
-    {
-        public ChainNode? Start;
-        public ChainNode? End;
-    }
-
-    public class ChainNode
-    {
-        public int Intersection;
-
-        public ChainNode? Link1;
-        public ChainNode? Link2;
-
-        public ChainNode? GetNext(ChainNode? prior)
-        {
-            if (prior == Link1)
-                return Link2;
-            return Link1;
-        }
-
-        public void Join(ChainNode other)
-        {
-            if (Link1 == null)
-            {
-                Link1 = other;
-                Link1.JoinInternal(this);
-            }
-            else if (Link2 == null)
-            {
-                Link2 = other;
-                Link2.JoinInternal(this);
-            }
-            else
-                throw new InvalidOperationException("Can't join chain, already doubly joined.");
-        }
-        private void JoinInternal(ChainNode other)
-        {
-            if (Link1 == null)
-            {
-                Link1 = other;
-            }
-            else if (Link2 == null)
-            {
-                Link2 = other;
-            }
-            else
-                throw new InvalidOperationException("Can't join chain, already doubly joined.");
-        }
-
-        public void Remove(ChainNode other)
-        {
-            if (Link1 == other)
-            {
-                Link1 = null;
-                other.RemoveInternal(this);
-            }
-            else if (Link2 == other)
-            {
-                Link2 = null;
-                other.RemoveInternal(this);
-            }
-            else
-                throw new InvalidOperationException("Can't break from chain, not joined.");
-        }
-        private void RemoveInternal(ChainNode other)
-        {
-            if (Link1 == other)
-            {
-                Link1 = null;
-            }
-            else if (Link2 == other)
-            {
-                Link2 = null;
-            }
-            else
-                throw new InvalidOperationException("Can't break from chain, not joined.");
-        }
-
-        public int[]? EdgesToLink1;
-        public int[]? EdgesToLink2;
     }
 
     /// <summary>
