@@ -10,7 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="TrialOrdering\Weights\tnt_h16_l1.ldlm" LogicalName="TwistNTurn.TrialOrdering.Weights.tnt_h16_l1.ldlm" />
+    <EmbeddedResource Include="TrialOrdering\Weights\tnt_side2_h16_l1.ldlm" LogicalName="TwistNTurn.TrialOrdering.Weights.tnt_side2_h16_l1.ldlm" />
   </ItemGroup>
 
   <ItemGroup>

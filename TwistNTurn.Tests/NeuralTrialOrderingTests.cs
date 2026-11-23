@@ -21,6 +21,52 @@ public sealed class NeuralTrialOrderingTests
         Assert.AreEqual(1, model.NumLayers);
         Assert.IsTrue(model.UseColorPool);
         Assert.IsTrue(model.UseMaxPool);
+        Assert.IsTrue(model.HasSideHead);
+    }
+
+    [TestMethod]
+    public void SidePredictionHead_ProducesFiniteSideLogitsAndFlipsPredictedTrials()
+    {
+        Mesh puzzle = PuzzleHelper.MakeMesh(10, 10, MeshType.Square, 4);
+        puzzle.Generate(new Random(101));
+        puzzle.Clear();
+        puzzle.PerformStart(new System.Collections.Generic.List<IAction>());
+
+        var policy = IncidenceGnnPolicy.CreateDefault();
+        policy.ScoreAllNodes(puzzle, iterativeRecDepth: 1);
+
+        int posCount = 0;
+        int negCount = 0;
+        var trials = new System.Collections.Generic.List<IAction>();
+        for (int e = 0; e < puzzle.Edges.Count; e++)
+        {
+            float logit = policy.EdgeSides[e];
+            Assert.IsTrue(float.IsFinite(logit));
+            if (puzzle.Edges[e].State == EdgeState.Empty)
+            {
+                if (logit > 0f) posCount++;
+                else if (logit < 0f) negCount++;
+                trials.Add(new SetAction(puzzle, e, EdgeState.Filled));
+            }
+        }
+
+        Assert.IsGreaterThan(0, posCount, "Expected some edges predicted to contradict on Excluded first.");
+        Assert.IsGreaterThan(0, negCount, "Expected some edges predicted to contradict on Filled first.");
+
+        policy.OrderIterativeTrials(puzzle, trials, 0, isTopLevel: true, iterativeRecDepth: 1);
+        int excludedFirst = 0;
+        int filledFirst = 0;
+        foreach (IAction action in trials)
+        {
+            if (action is SetAction sa)
+            {
+                if (sa.EdgeState == EdgeState.Excluded) excludedFirst++;
+                else if (sa.EdgeState == EdgeState.Filled) filledFirst++;
+            }
+        }
+
+        Assert.IsGreaterThan(0, excludedFirst, "Expected side prediction to flip some trials to Excluded first.");
+        Assert.IsGreaterThan(0, filledFirst, "Expected side prediction to keep some trials as Filled first.");
     }
 
     [TestMethod]
