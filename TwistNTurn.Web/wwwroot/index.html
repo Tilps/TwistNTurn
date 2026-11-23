@@ -93,6 +93,7 @@
                 if (history.replaceState) {
                     history.replaceState(null, '', hash ? base + '#' + hash : base);
                 } else {
+                    window._twistSuppressNextHashChange = true;
                     window.location.hash = hash || '';
                 }
             },
@@ -179,6 +180,19 @@
 
         window.registerTwistShortcuts = (dotNetRef) => {
             window._dotNetHomeRef = dotNetRef;
+            if (window._twistHashChangeHandler) {
+                window.removeEventListener('hashchange', window._twistHashChangeHandler);
+            }
+            window._twistHashChangeHandler = () => {
+                if (window._twistSuppressNextHashChange) {
+                    window._twistSuppressNextHashChange = false;
+                    return;
+                }
+                if (!window._dotNetHomeRef) return;
+                safeInvoke(window._dotNetHomeRef, 'OnUrlHashChanged', window.location.hash || '');
+            };
+            window.addEventListener('hashchange', window._twistHashChangeHandler);
+
             if (window._twistKeydownHandler) {
                 window.removeEventListener('keydown', window._twistKeydownHandler);
             }
@@ -220,6 +234,10 @@
 
         window.disposeTwistBoard = () => {
             window._dotNetHomeRef = null;
+            if (window._twistHashChangeHandler) {
+                window.removeEventListener('hashchange', window._twistHashChangeHandler);
+                window._twistHashChangeHandler = null;
+            }
             if (window._twistKeydownHandler) {
                 window.removeEventListener('keydown', window._twistKeydownHandler);
                 window._twistKeydownHandler = null;

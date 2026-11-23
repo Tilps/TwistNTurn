@@ -511,7 +511,7 @@
 @if (showShareToast)
 {
     <div class="toast-notification" role="status" aria-live="polite">
-        Link copied to clipboard!
+        @toastMessage
     </div>
 }
 
@@ -959,6 +959,7 @@
     private bool filesStatusIsError = false;
     private bool isDarkMode = false;
     private bool showShareToast = false;
+    private string toastMessage = "Link copied to clipboard!";
     private bool isMenuOpen = false;
     private bool hasPwaUpdate = false;
     private bool suppressNextVictoryModal = false;
@@ -1058,32 +1059,7 @@
                     string hash = await JS.InvokeAsync<string>("twistHelpers.getUrlHash");
                     if (!string.IsNullOrEmpty(hash))
                     {
-                        if (hash.StartsWith('#')) hash = hash[1..];
-                        string code = hash;
-                        if (code.StartsWith("p=", StringComparison.Ordinal)) code = code[2..];
-                        else if (code.StartsWith("puzzle=", StringComparison.Ordinal)) code = code[7..];
-
-                        // A) Compact format or Pearl descriptor
-                        if (PuzzleCodec.TryDecode(code, out var decodedMesh, out int dw, out int dh, out _) && decodedMesh != null)
-                        {
-                            string canonical = PuzzleCodec.Encode(decodedMesh, dw, dh);
-                            loaded = await TryRestoreFromLocalStorageAsync(s => s.Puzzle == canonical || s.Puzzle == code || s.Puzzle == hash);
-                            if (!loaded && Game.LoadPuzzleText(code))
-                            {
-                                loaded = true;
-                                selectedType = Game.CurrentType.ToString();
-                            }
-                        }
-                        // B) Fallback for compressed URLs
-                        else if (PuzzleCompression.TryDecompressFromUrlSafe(code, out string puzzleText) && !string.IsNullOrEmpty(puzzleText))
-                        {
-                            loaded = await TryRestoreFromLocalStorageAsync(s => s.Puzzle == puzzleText);
-                            if (!loaded && Game.LoadPuzzleText(puzzleText))
-                            {
-                                loaded = true;
-                                selectedType = Game.CurrentType.ToString();
-                            }
-                        }
+                        loaded = await TryLoadPuzzleFromHashAsync(hash);
                     }
                 }
                 catch (Exception ex)
@@ -1354,6 +1330,98 @@
         catch {}
     }
 
+    private void ShowToast(string message)
+    {
+        shareToastCts?.Cancel();
+        shareToastCts?.Dispose();
+        shareToastCts = new CancellationTokenSource();
+        toastMessage = message;
+        showShareToast = true;
+        _ = HideShareToastAfterDelayAsync(shareToastCts.Token);
+    }
+
+    private async Task<bool> TryLoadPuzzleFromHashAsync(string? rawHash)
+    {
+        if (!GameService.TryExtractPuzzleHashPayload(rawHash, out string normalizedHash, out string code))
+            return false;
+
+        // A) Compact format or Pearl descriptor
+        if (PuzzleCodec.TryDecode(code, out var decodedMesh, out int dw, out int dh, out _) && decodedMesh != null)
+        {
+            string canonical = PuzzleCodec.Encode(decodedMesh, dw, dh);
+            bool restored = await TryRestoreFromLocalStorageAsync(s => s.Puzzle == canonical || s.Puzzle == code || s.Puzzle == normalizedHash);
+            if (restored)
+                return true;
+            if (Game.LoadPuzzleText(code))
+            {
+                selectedType = Game.CurrentType.ToString();
+                return true;
+            }
+            return false;
+        }
+
+        // B) Fallback for compressed URLs
+        if (PuzzleCompression.TryDecompressFromUrlSafe(code, out string puzzleText) && !string.IsNullOrEmpty(puzzleText))
+        {
+            if (await TryRestoreFromLocalStorageAsync(s => s.Puzzle == puzzleText || s.Puzzle == normalizedHash))
+                return true;
+            if (Game.LoadPuzzleText(puzzleText))
+            {
+                selectedType = Game.CurrentType.ToString();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    [JSInvokable]
+    public async Task OnUrlHashChanged(string hash)
+    {
+        if (disposed || string.IsNullOrWhiteSpace(hash))
+            return;
+
+        if (Game.IsGenerating)
+            Game.CancelGeneration();
+        if (Game.IsBusy)
+            return;
+
+        suppressNextVictoryModal = true;
+        try
+        {
+            bool loaded = await TryLoadPuzzleFromHashAsync(hash);
+            if (loaded)
+            {
+                showVictoryModal = false;
+                showSolveModal = false;
+                showResetModal = false;
+                showFilesModal = false;
+                showSettingsModal = false;
+                showHelpModal = false;
+                isMenuOpen = false;
+                lastSolvedState = Game.IsSolved;
+                ResetZoom();
+                ShowToast("Loaded shared puzzle!");
+                StateHasChanged();
+            }
+            else if (hash.TrimStart('#').StartsWith("p=", StringComparison.OrdinalIgnoreCase) ||
+                     hash.TrimStart('#').StartsWith("puzzle=", StringComparison.OrdinalIgnoreCase))
+            {
+                ShowToast("Could not load puzzle from link.");
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load puzzle from hash change: {ex.Message}");
+        }
+        finally
+        {
+            lastSolvedState = Game.IsSolved;
+            suppressNextVictoryModal = false;
+        }
+    }
+
     private async Task SharePuzzle()
     {
         if (Game.CurrentMesh == null) return;
@@ -1365,11 +1433,7 @@
             string baseUrl = await JS.InvokeAsync<string>("twistHelpers.getBaseUrl");
             string fullUrl = $"{baseUrl}#p={compact}";
             await JS.InvokeAsync<bool>("twistHelpers.copyToClipboard", fullUrl);
-            shareToastCts?.Cancel();
-            shareToastCts?.Dispose();
-            shareToastCts = new CancellationTokenSource();
-            showShareToast = true;
-            _ = HideShareToastAfterDelayAsync(shareToastCts.Token);
+            ShowToast("Link copied to clipboard!");
         }
         catch (Exception ex)
         {

@@ -952,6 +952,46 @@ namespace TwistNTurn.Web.Services
             return true;
         }
 
+        public static bool TryExtractPuzzleHashPayload(string? rawHash, out string normalizedHash, out string payload)
+        {
+            normalizedHash = string.Empty;
+            payload = string.Empty;
+            if (string.IsNullOrWhiteSpace(rawHash))
+                return false;
+
+            string trimmed = rawHash.Trim();
+            if (trimmed.StartsWith('#'))
+                trimmed = trimmed[1..].Trim();
+            if (string.IsNullOrEmpty(trimmed))
+                return false;
+
+            normalizedHash = trimmed;
+            string code = trimmed;
+            if (code.StartsWith("p=", StringComparison.OrdinalIgnoreCase))
+                code = code[2..];
+            else if (code.StartsWith("puzzle=", StringComparison.OrdinalIgnoreCase))
+                code = code[7..];
+
+            code = code.Trim();
+            if (string.IsNullOrEmpty(code))
+                return false;
+
+            if (code.Contains('%'))
+            {
+                try
+                {
+                    code = Uri.UnescapeDataString(code);
+                }
+                catch (UriFormatException)
+                {
+                    // Keep original code if percent-escape sequence is malformed
+                }
+            }
+
+            payload = code;
+            return true;
+        }
+
         public bool LoadPuzzleText(string puzzleText)
         {
             if (string.IsNullOrEmpty(puzzleText)) return false;

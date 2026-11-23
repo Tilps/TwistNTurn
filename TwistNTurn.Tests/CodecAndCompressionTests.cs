@@ -1,6 +1,7 @@
 using System;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TwistNTurn;
+using TwistNTurn.Web.Services;
 
 namespace TwistNTurn.Tests
 {
@@ -134,6 +135,29 @@ namespace TwistNTurn.Tests
             Assert.IsTrue(ok);
             Assert.AreEqual(expectedW, pw);
             Assert.AreEqual(expectedH, ph);
+        }
+
+        [TestMethod]
+        public void GameService_TryExtractPuzzleHashPayload_HandlesRawAndPercentEncodedHashes()
+        {
+            Assert.IsFalse(GameService.TryExtractPuzzleHashPayload(null, out _, out _));
+            Assert.IsFalse(GameService.TryExtractPuzzleHashPayload("", out _, out _));
+            Assert.IsFalse(GameService.TryExtractPuzzleHashPayload("#", out _, out _));
+            Assert.IsFalse(GameService.TryExtractPuzzleHashPayload("#p=", out _, out _));
+
+            Assert.IsTrue(GameService.TryExtractPuzzleHashPayload("#p=sq/3x3/a0b1", out string norm1, out string payload1));
+            Assert.AreEqual("p=sq/3x3/a0b1", norm1);
+            Assert.AreEqual("sq/3x3/a0b1", payload1);
+
+            Assert.IsTrue(GameService.TryExtractPuzzleHashPayload("#PUZZLE=sq%2F3x3%2Fa0b1", out _, out string payload2));
+            Assert.AreEqual("sq/3x3/a0b1", payload2);
+
+            using var game = new GameService();
+            Assert.IsTrue(game.LoadPuzzleText(payload2));
+            Assert.IsNotNull(game.CurrentMesh);
+            Assert.AreEqual(16, game.CurrentMesh.Intersections.Count);
+            Assert.AreEqual(IntersType.Twist, game.CurrentMesh.Intersections[1].Type);
+            Assert.AreEqual(IntersType.Turn, game.CurrentMesh.Intersections[4].Type);
         }
     }
 }
