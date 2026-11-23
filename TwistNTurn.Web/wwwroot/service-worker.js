@@ -1,5 +1,5 @@
 // TwistNTurn Service Worker
-const CACHE_NAME = 'twistnturn-v5';
+const CACHE_NAME = 'twistnturn-v6';
 
 // Install event: remain waiting until user accepts update via SKIP_WAITING
 self.addEventListener('install', event => {

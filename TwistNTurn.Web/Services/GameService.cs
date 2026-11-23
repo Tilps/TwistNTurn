@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TwistNTurn;
+using TwistNTurn.TrialOrdering;
 
 namespace TwistNTurn.Web.Services
 {
@@ -38,6 +39,32 @@ namespace TwistNTurn.Web.Services
                 if (!value) PendingGroupEdgeIndex = null;
             }
         }
+
+        private bool showHintHeatMap = false;
+        public bool ShowHintHeatMap
+        {
+            get => showHintHeatMap;
+            set
+            {
+                if (showHintHeatMap == value) return;
+                showHintHeatMap = value;
+                RefreshHintHeatMap();
+            }
+        }
+
+        private bool useNeuralTrialOrdering = true;
+        public bool UseNeuralTrialOrdering
+        {
+            get => useNeuralTrialOrdering;
+            set
+            {
+                useNeuralTrialOrdering = value;
+                PuzzleHelper.UseNeuralTrialOrdering = value;
+            }
+        }
+
+        private HintHeatMapScorer? heatMapScorer;
+        public float[]? EdgeHeatScores { get; private set; }
 
         // Phase 2 Settings
         private int autoMoveLevel = 0;
@@ -110,8 +137,27 @@ namespace TwistNTurn.Web.Services
         public bool CanUndo => UndoTree.CanUndo;
         public bool CanRedo => UndoTree.CanRedo;
 
+        public void RefreshHintHeatMap()
+        {
+            if (!ShowHintHeatMap || CurrentMesh == null || IsSolved || IsGenerating || IsVisualSolving)
+            {
+                EdgeHeatScores = null;
+                return;
+            }
+
+            heatMapScorer ??= new HintHeatMapScorer();
+            EdgeHeatScores = heatMapScorer.ComputeEdgeHeat(CurrentMesh);
+        }
+
+        public void ToggleHintHeatMap()
+        {
+            ShowHintHeatMap = !ShowHintHeatMap;
+            NotifyVisualChanged();
+        }
+
         public void NotifyChanged()
         {
+            RefreshHintHeatMap();
             OnStateChanged?.Invoke();
             OnBoardPersistedStateChanged?.Invoke();
         }
@@ -207,6 +253,7 @@ namespace TwistNTurn.Web.Services
             generationCts?.Cancel();
             IsGenerating = false;
             GenerationStartTime = null;
+            RefreshHintHeatMap();
             NotifyVisualChanged();
         }
 
@@ -225,6 +272,7 @@ namespace TwistNTurn.Web.Services
 
             DismissVisualSolveInternal();
             IsGenerating = true;
+            EdgeHeatScores = null;
             GenerationStartTime = DateTime.UtcNow;
             PrunedProgress = 0;
             TotalIntersections = 0;
@@ -298,9 +346,14 @@ namespace TwistNTurn.Web.Services
                 myCts.Dispose();
 
                 if (generatedNewBoard)
+                {
                     NotifyChanged();
+                }
                 else
+                {
+                    RefreshHintHeatMap();
                     NotifyVisualChanged();
+                }
             }
         }
 
@@ -351,6 +404,8 @@ namespace TwistNTurn.Web.Services
             DisallowFalseMove = DisallowFalseMove,
             ShowCellColors = ShowCellColors,
             ShowEdgeColors = ShowEdgeColors,
+            ShowHintHeatMap = ShowHintHeatMap,
+            UseNeuralTrialOrdering = UseNeuralTrialOrdering,
             AutoMoveLevel = AutoMoveLevel,
             AutoMoveConsiderMultipleLoops = AutoMoveConsiderMultipleLoops,
             AutoMoveUseColoring = AutoMoveUseColoring,
@@ -367,6 +422,8 @@ namespace TwistNTurn.Web.Services
             DisallowFalseMove = prefs.DisallowFalseMove;
             ShowCellColors = prefs.ShowCellColors;
             ShowEdgeColors = prefs.ShowEdgeColors;
+            ShowHintHeatMap = prefs.ShowHintHeatMap;
+            UseNeuralTrialOrdering = prefs.UseNeuralTrialOrdering;
             AutoMoveLevel = prefs.AutoMoveLevel;
             AutoMoveConsiderMultipleLoops = prefs.AutoMoveConsiderMultipleLoops;
             AutoMoveUseColoring = prefs.AutoMoveUseColoring;
@@ -890,6 +947,7 @@ namespace TwistNTurn.Web.Services
             WasAutoSolved = state.IsSolved && state.WasAutoSolved;
             ClearTransientBoardState();
             CheckSolution();
+            RefreshHintHeatMap();
             NotifyVisualChanged();
             return true;
         }
@@ -991,7 +1049,10 @@ namespace TwistNTurn.Web.Services
         public void DismissVisualSolve()
         {
             if (DismissVisualSolveInternal())
+            {
+                RefreshHintHeatMap();
                 NotifyVisualChanged();
+            }
         }
 
         public bool StartVisualSolve()
@@ -1073,6 +1134,7 @@ namespace TwistNTurn.Web.Services
                 }
 
                 VisualSolveStepIndex = 0;
+                EdgeHeatScores = null;
                 NotifyVisualChanged();
                 return true;
             }
@@ -1465,6 +1527,8 @@ namespace TwistNTurn.Web.Services
         public bool DisallowFalseMove { get; set; } = false;
         public bool ShowCellColors { get; set; } = false;
         public bool ShowEdgeColors { get; set; } = false;
+        public bool ShowHintHeatMap { get; set; } = false;
+        public bool UseNeuralTrialOrdering { get; set; } = true;
         public int AutoMoveLevel { get; set; } = 0;
         public bool AutoMoveConsiderMultipleLoops { get; set; } = true;
         public bool AutoMoveUseColoring { get; set; } = false;

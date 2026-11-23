@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using TwistNTurn.TrialOrdering;
 
 namespace TwistNTurn
 {
@@ -21,6 +22,12 @@ namespace TwistNTurn
     {
         public const int MaxGridDimension = 100;
 
+        /// <summary>
+        /// When true, solver and difficulty 2-5 generator meshes attach the embedded pure-C#
+        /// IncidenceGnnPolicy to prioritize high-progress trials first.
+        /// </summary>
+        public static bool UseNeuralTrialOrdering { get; set; } = true;
+
         public static Mesh MakeMesh(int width, int height, MeshType type, int difficulty)
         {
             Mesh mesh = new Mesh(width, height, type);
@@ -35,6 +42,8 @@ namespace TwistNTurn
                 mesh.UseDerivedColoring = true;
                 mesh.UseMerging = true;
                 mesh.UseCellPairsTopLevel = true;
+                if (UseNeuralTrialOrdering)
+                    mesh.TrialOrderingPolicy = IncidenceGnnPolicy.CreateDefault();
             }
             if (difficulty < 5)
             {
@@ -62,6 +71,8 @@ namespace TwistNTurn
             solver.UseMerging = true;
             solver.UseCellPairs = true;
             solver.UseCellPairsTopLevel = true;
+            if (UseNeuralTrialOrdering)
+                solver.TrialOrderingPolicy = IncidenceGnnPolicy.CreateDefault();
             return solver;
         }
 

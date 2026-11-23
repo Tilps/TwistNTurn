@@ -357,6 +357,17 @@ body, html {
     color: #ffffff;
 }
 
+.btn-heatmap-active {
+    background: linear-gradient(135deg, #f97316, #dc2626);
+    color: #ffffff;
+    border-color: #ea580c;
+    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.22);
+}
+
+.btn-heatmap-active:hover:not(:disabled) {
+    filter: brightness(0.95);
+}
+
 /* Board Container & SVG */
 .board-container {
     flex: 1;
@@ -1351,6 +1362,66 @@ body, html {
     opacity: 0.9;
 }
 
+.edge-heatmap {
+    stroke-linecap: round;
+}
+
+/* Floating Hint Heat Map Legend */
+.heatmap-legend {
+    position: absolute;
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    left: calc(1rem + env(safe-area-inset-left, 0px));
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.35rem 0.6rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 9999px;
+    box-shadow: var(--shadow-lg);
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    z-index: 20;
+    user-select: none;
+}
+
+.heatmap-legend-label {
+    white-space: nowrap;
+}
+
+.heatmap-legend-bar {
+    width: 3.25rem;
+    height: 0.45rem;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, rgba(250, 204, 21, 0.45), #f97316 55%, #dc2626);
+}
+
+[data-theme="dark"] .heatmap-legend-bar {
+    background: linear-gradient(90deg, rgba(251, 191, 36, 0.45), #fb923c 55%, #f43f5e);
+}
+
+.heatmap-legend-scale {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.heatmap-legend-close {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.1rem 0.25rem;
+    border-radius: 50%;
+    font-size: 0.78rem;
+    line-height: 1;
+}
+
+.heatmap-legend-close:hover {
+    color: var(--text-primary);
+    background: var(--btn-secondary-hover);
+}
+
 .edge-group-pending {
     stroke: #06b6d4;
     stroke-width: 7px;
@@ -1424,6 +1495,8 @@ summary:focus-visible {
     .game-header,
     .game-footer,
     .zoom-hud,
+    .heatmap-legend,
+    .heatmap-layer,
     .visual-solver-bar,
     .toast-notification,
     .hint-toast-notification,
